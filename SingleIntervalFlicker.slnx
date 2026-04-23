@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="SingleIntervalFlicker/SingleIntervalFlicker.vcxproj" Id="7943f611-112e-4e18-9b60-748af58b2377" />
+</Solution>

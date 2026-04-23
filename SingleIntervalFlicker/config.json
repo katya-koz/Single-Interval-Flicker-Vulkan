@@ -1,0 +1,58 @@
+{
+  "Participant ID": "TestID",
+  "Participant Age": 30,
+  "Participant Gender": "F",
+  "Reference Image Directory": "C:\\Users\\Katyousha\\Pictures\\VESA\\2026\\images\\PPM\\orig",
+  "Condition Image Directory": "C:\\Users\\Katyousha\\Pictures\\VESA\\2026\\images\\PPM\\jpeg",
+  "Output Directory": "C:\\testOutput",
+  "TargetFPS": 30,
+  "Flicker Rate (Hz)": 5,
+  "Wait Time (s)": 2,
+  "Image Time (s)": 8,
+  "Foveal Width (degrees)": 5,
+  "Pixels/Degree": 60,
+  "Trials": [
+    {
+      "Image Name": "image0",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image1",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image2",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image3",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image4",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image5",
+      "Viewing Mode": 0
+    },
+
+    {
+      "Image Name": "image6",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image7",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image8",
+      "Viewing Mode": 0
+    },
+    {
+      "Image Name": "image9",
+      "Viewing Mode": 0
+    }
+
+  ]
+}
