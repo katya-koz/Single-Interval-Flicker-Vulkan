@@ -18,22 +18,20 @@ struct ImagePaths {
 };
 
 struct Config {
+    std::string conditionName; 
     std::string participantID;
     std::string participantAge;
     std::string participantGender;
-    fs::path origImageDirectory;
-    fs::path condImageDirectory;
+    fs::path origImageDirectory; // reference images
+    fs::path condImageDirectory; // flicker condition images
     std::vector<ImagePaths> trials;
-    fs::path outputDirectory;
+    fs::path outputDirectory = "C://flickerTestOutput"; // where the results csv is output
+
     // defaults
     double flickerRate = 10.0;  // hz
     double waitTime = 2.0; // time between images
     double imageTime = 2.0; // time images are shown
     int targetFPS = 30; 
-    float fovealWidth = 5.0; // degrees
-    //float physicalScreenWidthMeters = 0.53; // m
-    //float viewingDistanceMeters = 0.6; // m
-    float pixelsPerDegree = 60.0;
 
     // load and parse json config file
     bool load(const std::string& configPath);

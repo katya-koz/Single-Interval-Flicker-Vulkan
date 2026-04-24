@@ -9,29 +9,24 @@
 #include "selectVariantDialog.h"
 
 
-int selectedVariant = -1;
-
-
-
-int WINAPI WinMain(
-    HINSTANCE hInstance,
-    HINSTANCE hPrevInstance,
-    LPSTR lpCmdLine,
-    int nCmdShow
-) {
-
-    
-    App app;
-
-
-
-    if (!app.init("config.json")) { // path to the config here !!
+int main(int argc, char** argv)
+{
+    if (argc < 2)
+    {
+        std::cerr << "Usage: App.exe <config.json>\n";
         return -1;
     }
 
+    std::string configPath = argv[1];
 
+    App app;
+
+    if (!app.init(configPath))
+    {
+        std::cerr << "Failed to initialize app with config: " << configPath << "\n";
+        return -1;
+    }
 
     app.run();
-
     return 0;
 }

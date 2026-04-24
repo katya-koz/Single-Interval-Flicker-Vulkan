@@ -10,9 +10,9 @@ CSV::~CSV() {
     close();
 }
 
-bool CSV::init(const std::string& participantId, const std::string& participantAge, const std::string& participantGender, const std::string& experimentName, const std::string& variant, const std::vector<std::string>& headers, const std::string& outputDirectory = "") {
+bool CSV::init(const std::string& participantId, const std::string& participantAge, const std::string& participantGender, const std::string& experimentName,  const std::vector<std::string>& headers, const std::string& outputDirectory = "") {
     
-    fs::path outPath = buildPath(participantId, experimentName, variant, outputDirectory);
+    fs::path outPath = buildPath(participantId, experimentName, outputDirectory);
 
     m_file.open(outPath);
     if (!m_file.is_open()) {
@@ -22,7 +22,6 @@ bool CSV::init(const std::string& participantId, const std::string& participantA
 
     // metadata
     m_file << "Experiment: " << experimentName << "\n";
-    m_file << "Variant: " << variant << "\n";
     m_file << "Participant ID: " << participantId << "\n";
     m_file << "Participant Age: " << participantAge << "\n";
     m_file << "Participant Gender: " << participantGender << "\n";
@@ -61,7 +60,7 @@ void CSV::close() {
     if (m_file.is_open()) m_file.close();
 }
 
-fs::path CSV::buildPath(const std::string& participantId, const std::string& experimentName, const std::string& variant, const std::string& outputDir) const {
+fs::path CSV::buildPath(const std::string& participantId, const std::string& experimentName, const std::string& outputDir) const {
     fs::path dir = outputDir.empty() ? fs::current_path() : fs::path(outputDir);
 
     // create the directory if it doesn't exist
@@ -72,10 +71,7 @@ fs::path CSV::buildPath(const std::string& participantId, const std::string& exp
     std::string sanitizedExperimentName = experimentName;
     std::replace(sanitizedExperimentName.begin(), sanitizedExperimentName.end(), ' ', '-');
 
-    std::string sanitizedVariantName = variant;
-    std::replace(sanitizedVariantName.begin(), sanitizedVariantName.end(), ' ', '-');
-
-    std::string base = sanitizedExperimentName + "_" + sanitizedVariantName + "_" + participantId + "_" + getDateString();
+    std::string base = sanitizedExperimentName +  "_" + participantId + "_" + getDateString();
     int counter = 0;
     fs::path outPath;
 

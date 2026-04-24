@@ -9,8 +9,6 @@
   "Flicker Rate (Hz)": 5,
   "Wait Time (s)": 2,
   "Image Time (s)": 8,
-  "Foveal Width (degrees)": 5,
-  "Pixels/Degree": 60,
   "Trials": [
     {
       "Image Name": "image0",

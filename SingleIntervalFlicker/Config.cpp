@@ -29,7 +29,9 @@ bool Config::load(const std::string& configPath) {
     origImageDirectory = j.at("Reference Image Directory").get<std::string>();
     condImageDirectory = j.at("Condition Image Directory").get<std::string>();
 
-    // optional parameters
+    std::filesystem::path p(condImageDirectory);
+    conditionName = p.filename().string();
+
     if (j.contains("Output Directory")) {
         outputDirectory = j["Output Directory"].get<std::string>();
     }
@@ -42,23 +44,10 @@ bool Config::load(const std::string& configPath) {
     if (j.contains("Image Time (s)")) {
         imageTime = j["Image Time (s)"].get<double>();
     }
-    
-    if (j.contains("Foveal Width (degrees)")) {
-        fovealWidth = j["Foveal Width (degrees)"].get<float>();
-    }
-    if (j.contains("Pixels/Degree")) {
-        pixelsPerDegree = j["Pixels/Degree"].get<float>();
-    }
-
+   
     if (j.contains("TargetFPS")) {
         targetFPS = j["TargetFPS"].get<float>();
     }
-    //if (j.contains("Physical Screen Width (meters)")) {
-    //    physicalScreenWidthMeters = j["Physical Screen Width (meters)"].get<float>();
-    //}
-    //if (j.contains("Physical Viewing Distance (meters)")) {
-    //    viewingDistanceMeters = j["Physical Viewing Distance (meters)"].get<float>();
-    //}
 
     if (!fs::exists(origImageDirectory) || !fs::is_directory(origImageDirectory)) {
         std::string msg = "[Config] Image directory not found: " + origImageDirectory.string() + "";
