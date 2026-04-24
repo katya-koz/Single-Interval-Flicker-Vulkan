@@ -84,7 +84,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(OpenCV_Path)\include;$(GLAD_Path)\include;$(GLFW_Path)\include;$(ProjectDir)\include;$(Vulkan_Path)\Include;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OpenCV_Path)\include;$(GLFW_Path)\include;$(ProjectDir)\include;$(Vulkan_Path)\Include;$(GLAD_Path)\include;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -124,7 +124,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(OpenCV_Path)\include;$(GLAD_Path)\include;$(GLFW_Path)\include;$(ProjectDir)\include;$(Vulkan_Path)\Include;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OpenCV_Path)\include;$(GLFW_Path)\include;$(ProjectDir)\include;$(Vulkan_Path)\Include;$(GLAD_Path)\include;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
