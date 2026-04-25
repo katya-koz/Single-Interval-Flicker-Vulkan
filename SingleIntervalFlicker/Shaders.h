@@ -64,15 +64,7 @@ layout(location = 0) in  vec2 vUV;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // Colours are stored as linear scene-referred values.
-    // The swap-chain surface format is VK_FORMAT_A2B10G10R10_UNORM_PACK32
-    // with VK_COLOR_SPACE_HDR10_ST2084_EXT, so the driver / display
-    // pipeline handles the PQ EOTF encoding. We must therefore output
-    // linear SCENE-REFERRED nits / 10000.
-    //
-    // For SDR images stored as 8-bit [0,1] sRGB, the values are kept as-is
-    // (they look correct on SDR monitors through the sRGB transfer).
-    // For HDR images the loader already normalized to linear scene-referred
+    // For HDR images the loader already normalized to linear scene referred
     // values so nothing extra is needed here.
     outColor = vec4(texture(uTex, vUV).rgb, 1.0);
 }

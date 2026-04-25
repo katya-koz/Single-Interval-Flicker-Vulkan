@@ -900,7 +900,7 @@ VkSurfaceFormatKHR Renderer::chooseSwapSurfaceFormat(const std::vector<VkSurface
 {
     for (auto& f : available) {
         if (f.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
-            f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
+            f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT); return f;
     }
     for (auto& f : available) {
         if (f.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 &&
