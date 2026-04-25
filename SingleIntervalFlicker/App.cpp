@@ -183,7 +183,7 @@ void App::recordResponse(int key) {
 
     TrialResult result;
     result.imageName = m_config.trials[m_trialIndex].name;
-    result.answer = (key == GLFW_KEY_LEFT) ? 0 : 1;
+    result.answer = (key == GLFW_KEY_LEFT) ? 1 : 0; // remember that the mirrors flip the image, so the left key actually refers to the right image and vice versa.
     result.actual = m_config.trials[m_trialIndex].flickerIndex;
     result.index = m_trialIndex;
 
