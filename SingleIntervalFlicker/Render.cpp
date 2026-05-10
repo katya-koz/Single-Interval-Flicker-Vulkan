@@ -923,71 +923,7 @@ VkExtent2D Renderer::chooseSwapExtent(GLFWwindow* window, const VkSurfaceCapabil
     };
 }
 
-/// <summary>
-/// Queries the OS for the primary monitors stats, to record in metadata.
-/// </summary>
-/// <param name="window"></param>
-void Renderer::applyHdrMetadata(GLFWwindow* window) {
-    // query the primary monitor: on non windows this returns an invalid info. 
-    // this experiemnet is expected to run with 2 identical monitors.
-    #ifdef _WIN32
-        DisplayColorInfo disp = queryPrimaryMonitorHDR(window);
-    #else
-        DisplayColorInfo disp{};
-    #endif
 
-    // hdr must be active for this experiment. fail otherwise
-    if (!disp.valid || !disp.isHDR) {
-        Utils::FatalError("[Renderer] HDR10 not active on primary and secondary monitor. Enable 'Use HDR' in Windows Display Settings");
-    }
-
-    // some drivers report 0 for luminance fields even when primaries are valid
-    // treat that as a separate fallback case
-    const bool lumValid = disp.maxLuminance > 0.0f;
-
-    VkHdrMetadataEXT meta{};
-    meta.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
-
-    // primaries + white point — always queried at this point (we threw above if invalid)
-    meta.displayPrimaryRed = { disp.redPrimary[0],   disp.redPrimary[1] };
-    meta.displayPrimaryGreen = { disp.greenPrimary[0], disp.greenPrimary[1] };
-    meta.displayPrimaryBlue = { disp.bluePrimary[0],  disp.bluePrimary[1] };
-    meta.whitePoint = { disp.whitePoint[0],   disp.whitePoint[1] };
-
-    // luminance, queried if reported, default otherwise
-    if (lumValid) {
-        meta.maxLuminance = disp.maxLuminance;
-        meta.minLuminance = disp.minLuminance;
-
-        // dont claim brighter content than the panel can show
-        const float fullFrame = (disp.maxFullFrameLuminance > 0.0f) ? disp.maxFullFrameLuminance : disp.maxLuminance * 0.4f;
-        meta.maxContentLightLevel = disp.maxLuminance;
-        meta.maxFrameAverageLightLevel = fullFrame;
-    }
-    else { // fallback
-        meta.maxLuminance = 1000.0f;
-        meta.minLuminance = 0.001f;
-        meta.maxContentLightLevel = 1000.0f;
-        meta.maxFrameAverageLightLevel = 400.0f;
-    }
-
-    //debug message
-    std::cout << "[Renderer] HDR metadata: queried primaries, "
-        << (lumValid ? "queried" : "fallback") << " luminance — "
-        << "peak=" << meta.maxLuminance << " nits, "
-        << "fullframe=" << meta.maxFrameAverageLightLevel << " nits\n";
-
-    // apply to the swapchain
-    auto fn = (PFN_vkSetHdrMetadataEXT)
-        vkGetDeviceProcAddr(m_device, "vkSetHdrMetadataEXT");
-    if (fn) {
-        fn(m_device, 1, &m_swapchain, &meta);
-    }
-    else {
-        std::cerr << "[Renderer] vkSetHdrMetadataEXT not available; "
-            "HDR metadata not applied\n";
-    }
-}
 
 /// <summary>
 /// Creates the swap chain (with helpers)
@@ -1035,8 +971,6 @@ void Renderer::createSwapChain(GLFWwindow* window) {
 
     if (vkCreateSwapchainKHR(m_device, &ci, nullptr, &m_swapchain) != VK_SUCCESS)
         throw std::runtime_error("vkCreateSwapchainKHR failed");
-
-    applyHdrMetadata(window);
 
     // retrieve swap chain images
     uint32_t n;
