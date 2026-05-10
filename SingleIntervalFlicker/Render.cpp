@@ -228,10 +228,8 @@ static Rect makeQuadNDC(int x, int y, int w, int h, int screenW, int screenH)
     return { x0, y1, x1, y0 };
 }
 /// <summary>
-/// Calcualtes the image rects based on their size. 
+/// Calcualtes the image rects based on their texture size. Does NOT resize images - keeps their true pixel size.
 /// Images will sit side by side on same monitor, with a gap between them.
-/// If image is portrait, then clamp based on image height.
-/// If image is landscape, clamp based on image width.
 /// </summary>
 /// <param name="texW"></param>
 /// <param name="texH"></param>
@@ -244,31 +242,13 @@ void computeImageRects(
     int screenW, int screenH,
     Rect& img0, Rect& img1)
 {
-    float aspectRatio = (float)texW / (float)texH;
+    int gapPX = 60;
 
-    int gap = 60;
-    int halfW = screenW / 2;
-
-    int imgW, imgH;
-
-    if (aspectRatio >= 1.0f) {
-        imgW = halfW - (int)(gap * 1.5f);
-        imgH = (int)(imgW / aspectRatio);
-    }
-    else {
-        imgH = screenH - 2 * gap;
-        imgW = (int)(imgH * aspectRatio);
-    }
-
-    // clamp
-    if (imgW > halfW - (int)(gap * 1.5f)) {
-        imgW = halfW - (int)(gap * 1.5f);
-        imgH = (int)(imgW / aspectRatio);
-    }
+    int imgW = texW, imgH = texH;
 
     int imgY = (screenH - imgH) / 2;
-    int leftX = gap;
-    int rightX = halfW + gap / 2;
+    int leftX = (screenW - gapPX) / 2 - imgW;
+    int rightX = (screenW + gapPX)/ 2;
 
     // convert to NDC
     img0 = makeQuadNDC(leftX, imgY, imgW, imgH, screenW, screenH);
@@ -900,7 +880,7 @@ VkSurfaceFormatKHR Renderer::chooseSwapSurfaceFormat(const std::vector<VkSurface
 {
     for (auto& f : available) {
         if (f.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
-            f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT); return f;
+            f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
     }
     for (auto& f : available) {
         if (f.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 &&
