@@ -115,7 +115,7 @@ private:
 
     VkCommandBuffer beginSingleTimeCommands();
     void endSingleTimeCommands(VkCommandBuffer cmd);
-    void applyHdrMetadata(GLFWwindow* window);
+    //void applyHdrMetadata(GLFWwindow* window);
 
     // queries
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice dev);

@@ -56,7 +56,7 @@ void main() {
 }
 )glsl";
 
-static const std::string QUAD_FRAG_GLSL = R"glsl(
+static const std::string QUAD_FRAG_GLSL = R"glsl( // this is the shader used for displaying the images
 #version 450
 
 layout(set = 0, binding = 0) uniform sampler2D uTex;
@@ -64,8 +64,7 @@ layout(location = 0) in  vec2 vUV;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // For HDR images the loader already normalized to linear scene referred
-    // values so nothing extra is needed here.
+    // no additional transformations required by the shader
     outColor = vec4(texture(uTex, vUV).rgb, 1.0);
 }
 )glsl";
@@ -76,7 +75,7 @@ static const std::string CROSSHAIR_VERT_GLSL = R"glsl(
 layout(location = 0) in vec2 aPos;
 
 layout(push_constant) uniform PC {
-    float aspect;
+    float aspect;  // need aspect to ensure the crosshair is uniform across length and width
 } pc;
 
 void main() {
@@ -90,7 +89,7 @@ static const std::string CROSSHAIR_FRAG_GLSL = R"glsl(
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // Pure white – renders correctly on both SDR and HDR surfaces.
+    // just white
     outColor = vec4(1.0, 1.0, 1.0, 1.0);
 }
 )glsl";
