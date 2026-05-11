@@ -787,88 +787,6 @@ void Renderer::createLogicalDevice() {
     vkGetDeviceQueue(m_device, idx.present.value(), 0, &m_presentQueue);
 }
 
-// swap chain (HDR10)s
-
-// queries the monitor for stats 
-#ifdef _WIN32
-static DisplayColorInfo queryPrimaryMonitorHDR(GLFWwindow* window) {
-    using Microsoft::WRL::ComPtr;
-
-    DisplayColorInfo info{};
-    info.valid = false;
-
-    ComPtr<IDXGIFactory1> factory;
-    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
-        std::cerr << "[Renderer] CreateDXGIFactory1 failed\n";
-        return info;
-    }
-
-    // prefer the output that contains our window; fall back to adapter 0 / output 0
-    HMONITOR targetMonitor = nullptr;
-    if (window) {
-        HWND hwnd = glfwGetWin32Window(window);
-        if (hwnd) targetMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
-    }
-
-    ComPtr<IDXGIOutput6> output6;
-
-    // first pass: find the output matching our window's monitor
-    if (targetMonitor) {
-        ComPtr<IDXGIAdapter1> adapter;
-        for (UINT ai = 0; factory->EnumAdapters1(ai, &adapter) != DXGI_ERROR_NOT_FOUND; ++ai) {
-            ComPtr<IDXGIOutput> output;
-            for (UINT oi = 0; adapter->EnumOutputs(oi, &output) != DXGI_ERROR_NOT_FOUND; ++oi) {
-                DXGI_OUTPUT_DESC desc{};
-                if (SUCCEEDED(output->GetDesc(&desc)) && desc.Monitor == targetMonitor) {
-                    output.As(&output6);
-                    break;
-                }
-                output.Reset();
-            }
-            if (output6) break;
-            adapter.Reset();
-        }
-    }
-
-    // fallback: adapter 0, output 0 (typically the primary monitor)
-    if (!output6) {
-        ComPtr<IDXGIAdapter1> adapter;
-        if (SUCCEEDED(factory->EnumAdapters1(0, &adapter))) {
-            ComPtr<IDXGIOutput> output;
-            if (SUCCEEDED(adapter->EnumOutputs(0, &output))) {
-                output.As(&output6);
-            }
-        }
-    }
-
-    if (!output6) {
-        std::cerr << "[Renderer] No DXGI output found\n";
-        return info;
-    }
-
-    DXGI_OUTPUT_DESC1 d{};
-    if (FAILED(output6->GetDesc1(&d))) {
-        std::cerr << "[Renderer] IDXGIOutput6::GetDesc1 failed\n";
-        return info;
-    }
-
-    info.redPrimary[0] = d.RedPrimary[0];
-    info.redPrimary[1] = d.RedPrimary[1];
-    info.greenPrimary[0] = d.GreenPrimary[0];
-    info.greenPrimary[1] = d.GreenPrimary[1];
-    info.bluePrimary[0] = d.BluePrimary[0];
-    info.bluePrimary[1] = d.BluePrimary[1];
-    info.whitePoint[0] = d.WhitePoint[0];
-    info.whitePoint[1] = d.WhitePoint[1];
-    info.minLuminance = d.MinLuminance;
-    info.maxLuminance = d.MaxLuminance;
-    info.maxFullFrameLuminance = d.MaxFullFrameLuminance;
-    info.isHDR = (d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
-    info.valid = true;
-    return info;
-}
-#endif // _WIN32
-
 
 /// <summary>
 /// Chooses the swap format in order of priority
@@ -878,15 +796,15 @@ static DisplayColorInfo queryPrimaryMonitorHDR(GLFWwindow* window) {
 /// <returns></returns>
 VkSurfaceFormatKHR Renderer::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& available)
 {
-    for (auto& f : available) {
+    for (auto& f : available) { // bgr and HDR10
         if (f.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
             f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
     }
-    for (auto& f : available) {
+    for (auto& f : available) { // rgb and HDR10
         if (f.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 &&
             f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
     }
-    for (auto& f : available) {
+    for (auto& f : available) { // SRGB fallback
         if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT &&
             f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) return f;
     }
@@ -930,7 +848,7 @@ VkExtent2D Renderer::chooseSwapExtent(GLFWwindow* window, const VkSurfaceCapabil
 /// </summary>
 /// <param name="window"></param>
 void Renderer::createSwapChain(GLFWwindow* window) {
-    auto scs = querySwapChainSupport(m_physicalDevice);
+    auto scs = querySwapChainSupport(m_physicalDevice); 
     auto sfmt = chooseSwapSurfaceFormat(scs.formats);
     auto smode = chooseSwapPresentMode(scs.presentModes);
     auto extent = chooseSwapExtent(window, scs.capabilities);
@@ -1472,11 +1390,14 @@ QueueFamilyIndices Renderer::findQueueFamilies(VkPhysicalDevice dev) {
     }
     return idx;
 }
-
+/// <summary>
+/// Query the GPU device for supported swapchain format-color space pairs 
+/// </summary>
+/// <param name="dev"></param>
+/// <returns></returns>
 SwapChainSupportDetails Renderer::querySwapChainSupport(VkPhysicalDevice dev) {
     SwapChainSupportDetails d;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev, m_surface, &d.capabilities);
-
     uint32_t n;
     vkGetPhysicalDeviceSurfaceFormatsKHR(dev, m_surface, &n, nullptr);
     d.formats.resize(n);
