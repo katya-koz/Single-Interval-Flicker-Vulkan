@@ -6,7 +6,6 @@
 #include <chrono>
 #include <stdexcept>
 #include <thread>
-#include "ParticipantDialog.h"
 #pragma comment(lib, "winmm.lib")
 
 /// <summary>
@@ -25,15 +24,13 @@ App::~App() {
 /// </summary>
 /// <param name="configPath">Location of config file. Defaults to 'config.json' in .exe location. </param>
 /// <returns>True if app successsfully initialized. False otherwise. </returns>
-bool App::init(const std::string& configPath, std::string& trialsPath, ExperimentInfo experimentInfo) {
-    if (!m_config.load(configPath)) return false;
-    if (!m_config.loadTrials(trialsPath)) return false;
-
-    m_experimentInfo = experimentInfo;
+bool App::init(const std::string& configPath, std::string& inputPath) {
+    if (!m_config.loadConfig(configPath)) return false;
+    if (!m_config.loadTrials(inputPath)) return false;
 
 
     if (m_config.trials.empty()) {
-        Utils::FatalError("[App] No trials in config.");
+        Utils::FatalError("[App] No trials found in config.");
         return false;
     }
 
@@ -79,25 +76,26 @@ bool App::init(const std::string& configPath, std::string& trialsPath, Experimen
 
     // initialize the CSV to track responses
     m_csv.init(
-        m_experimentInfo.participantId,
-        m_experimentInfo.age,
-        m_experimentInfo.gender,
-        m_experimentInfo.block,
-        m_experimentInfo.session,
-        m_experimentInfo.group,
-        m_config.intervalMode,
-        m_config.displayMode,
+        m_config.experimentInfo.participantID,
+        m_config.experimentInfo.participantAge,
+        m_config.experimentInfo.participantGender,
+        //m_config.experimentInfo.blockNumber, ? dont know if needed...
+        m_config.experimentInfo.sessionNumber,
+        m_config.experimentInfo.groupNumber,
+        //m_config.intervalMode,  dont need for now
+        //m_config.displayMode, dont need for now
             { 
-                "Index",
                 "Codec",
                 "Image", 
-                "Answer", 
-                "Position-X", 
-                "Position-Y",
+                "Actual", 
+                "Position-X (Left)", 
+                "Position-Y (Left)",
+                "Position-X (Right)",
+                "Position-Y (Right)",
                 "Mode",
                 "Response",
-                "Fixation Time",
-                "Display Time"
+                "Duration",
+                "Subject"
             },
         m_config.outputDirectory.string());
 
@@ -137,7 +135,9 @@ void App::run() {
 /// </returns>
 FrameScene App::buildScene() const {
     FrameScene s;
-    s.drawCrosshair = false;
+    //s.drawFixationPoint = true;
+
+    s.fixationPointCoords = m_config.trials[m_trialIndex].fixationCoords;
 
     switch (m_phase) {
     case TrialPhase::StartInstructions:
@@ -150,18 +150,15 @@ FrameScene App::buildScene() const {
     {
         s.mode = FrameScene::Mode::ShowSingleIntervalImages;
         s.flickerShow = m_flickerShow;
-        s.flickerIndex = (m_trialIndex < (int)m_config.trials.size())
-            ? m_config.trials[m_trialIndex].flickerIndex : 0;
+        s.flickerIndex = (m_trialIndex < (int)m_config.trials.size()) ? m_config.trials[m_trialIndex].flickerIndex : 0;
         break;
     }
 
     case TrialPhase::ShowFullFieldImage: {
-        const int flickerIndex = (m_trialIndex < (int)m_config.trials.size())
-            ? m_config.trials[m_trialIndex].flickerIndex : 0;
+        const int flickerIndex = (m_trialIndex < (int)m_config.trials.size()) ? m_config.trials[m_trialIndex].flickerIndex : 0;
         const bool isFlickerInterval = (flickerIndex == m_interTrialImageIndex);
 
-        s.mode = isFlickerInterval ? FrameScene::Mode::ShowFlickerImage
-            : FrameScene::Mode::ShowImage;
+        s.mode = isFlickerInterval ? FrameScene::Mode::ShowFlickerImage : FrameScene::Mode::ShowImage;
         s.flickerShow = m_flickerShow;
         break;
     }
@@ -192,12 +189,13 @@ void App::initGame() {
     m_trialIndex = 0;
     m_interTrialImageIndex = 0;
 
-    if(m_config.intervalMode == 1 ){
-        m_phase = TrialPhase::ShowSideBySideImages;
-    }
-    else {
-        m_phase = TrialPhase::ShowFullFieldImage;
-    }
+    m_phase = TrialPhase::ShowBuffer;
+    //if(m_config.intervalMode == 1 ){
+    //    m_phase = TrialPhase::ShowSideBySideImages;
+    //}
+    //else {
+    //    m_phase = TrialPhase::ShowFullFieldImage;
+    //}
     m_phaseStart = glfwGetTime();
     m_flickerLast = m_phaseStart;
     m_flickerShow = false;
@@ -311,34 +309,37 @@ void App::recordResponse(int key) {
     TrialResult result;
     result.imageName = m_config.trials[m_trialIndex].name;
     result.codec = m_config.trials[m_trialIndex].codec;
-    result.positionX = m_config.trials[m_trialIndex].positionX;
-    result.positionY = m_config.trials[m_trialIndex].positionY;
+    result.positionX_L = m_config.trials[m_trialIndex].fixationCoords.Left.X;
+    result.positionY_L = m_config.trials[m_trialIndex].fixationCoords.Left.Y;
+    result.positionX_R = m_config.trials[m_trialIndex].fixationCoords.Right.X;
+    result.positionY_R = m_config.trials[m_trialIndex].fixationCoords.Right.Y;
+
+    // translate viewing mode into name data
+    switch (m_config.trials[m_trialIndex].viewingMode) {
+    case 0:  result.viewingMode = "Stereo"; break;
+    case 1:  result.viewingMode = "Mono Left";   break;
+    case 2:  result.viewingMode = "Mono Right";  break;
+    default: result.viewingMode = "N/A";    break;
+    }
 
     // if this is in single interval mode, need to flip the answer since it is left/right
     // in two interval mode, the answer is based on the first vs second image, so no 
     // need to flip the answer value in that case.
     if (m_config.intervalMode == 1) {
         // remember that the mirrors flip the image, so the left key actually refers to the right image and vice versa.
-        result.answer = (key == GLFW_KEY_LEFT) ? 1 : 0;
+        result.response = (key == GLFW_KEY_LEFT) ? 1 : 0;
     }
     else {
-        result.answer = (key == GLFW_KEY_LEFT) ? 0 : 1;
+        result.response = (key == GLFW_KEY_LEFT) ? 0 : 1;
     }
     
     
     result.actual = m_config.trials[m_trialIndex].flickerIndex;
-    result.index = m_trialIndex;
 
     // play sound based on if response is correct or incorrect
-    result.answer == result.actual ? PlaySound(TEXT("./assets/sounds/Success.wav"), NULL, SND_FILENAME | SND_ASYNC) : PlaySound(TEXT("./assets/sounds/error.wav"), NULL, SND_FILENAME | SND_ASYNC);
+    result.response == result.actual ? PlaySound(TEXT("./assets/sounds/Success.wav"), NULL, SND_FILENAME | SND_ASYNC) : PlaySound(TEXT("./assets/sounds/error.wav"), NULL, SND_FILENAME | SND_ASYNC);
 
-    // translate viewing mode into name data
-    switch (m_config.trials[m_trialIndex].viewingMode) {
-        case 0:  result.viewingMode = "Stereo"; break;
-        case 1:  result.viewingMode = "Mono Left";   break;
-        case 2:  result.viewingMode = "Mono Right";  break;
-        default: result.viewingMode = "N/A";    break;
-    }
+   
         
     // not sure if reaction time is needed
     if (m_config.intervalMode == 0) { // 2 interval mode - start counting reaction tiome from response start
@@ -352,16 +353,17 @@ void App::recordResponse(int key) {
 
     m_csv.writeRow(
         {
-        std::to_string(result.index),
         result.codec,
         result.imageName,
-        std::to_string(result.answer),
-        std::to_string(result.positionX),
-        std::to_string(result.positionY),
-        result.viewingMode,
         std::to_string(result.actual),
-        std::to_string((int)(m_config.waitTime * 1000)),
-        std::to_string((int)(m_config.imageTime * 1000)),
+        std::to_string(result.positionX_L),
+        std::to_string(result.positionY_L),
+        std::to_string(result.positionX_R),
+        std::to_string(result.positionY_R),
+        result.viewingMode,
+        std::to_string(result.response),
+        std::to_string((int)(result.reactionTimeMS)),
+        m_config.experimentInfo.participantID
     });
 
     m_trialIndex++;

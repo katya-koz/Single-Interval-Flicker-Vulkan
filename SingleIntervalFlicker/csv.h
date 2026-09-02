@@ -14,11 +14,11 @@ class CSV {
 		bool init(const std::string& participantId,
 			const int participantAge,
 			const char participantGender,
-			const int blockNumber, 
+			//const int blockNumber, 
 			const int sessionNumber,
 			const int groupNumber, 
-			const int intervalMode,
-			const int displayMode,
+			//const int intervalMode,
+			//const int displayMode,
 			const std::vector<std::string>& headers,
 			const std::string& outputDirectory
 		); // writes headers, initializes file
@@ -29,7 +29,7 @@ class CSV {
 		std::ofstream m_file;
 
 		// helpers
-		fs::path buildPath(const std::string& participantId, const int blockNumber, const int sessionNumber,
+		fs::path buildPath(const std::string& participantId,/* const int blockNumber,*/ const int sessionNumber,
 			const int groupNumber, const std::string& outputDir) const;
 		std::string getDateString() const;
 		std::string getDateTimeString() const;

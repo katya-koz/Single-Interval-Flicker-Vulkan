@@ -75,11 +75,20 @@ static const std::string CROSSHAIR_VERT_GLSL = R"glsl(
 layout(location = 0) in vec2 aPos;
 
 layout(push_constant) uniform PC {
-    float aspect;  // need aspect to ensure the crosshair is uniform across length and width
+    float centerX;
+    float centerY;
+    float halfSizeX;
+    float halfSizeY;
 } pc;
 
-void main() {
-    gl_Position = vec4(aPos.x / pc.aspect, aPos.y, 0.0, 1.0);
+void main()
+{
+    gl_Position = vec4(
+        aPos.x * pc.halfSizeX + pc.centerX,
+        aPos.y * pc.halfSizeY + pc.centerY,
+        0.0,
+        1.0
+    );
 }
 )glsl";
 

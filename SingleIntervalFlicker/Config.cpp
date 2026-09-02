@@ -34,7 +34,8 @@ namespace {
 
 } // namespace
 
-bool Config::load(const std::string& configPath) {
+bool Config::loadConfig(const std::string& configPath) {
+    // load the config.json file into app settings
     std::ifstream file(configPath);
     if (!file.is_open()) {
         std::cerr << "[Config] Could not open config file: " << configPath << "\n";
@@ -50,8 +51,7 @@ bool Config::load(const std::string& configPath) {
         return false;
     }
 
-    origImageDirectory = j.at("Reference Image Directory").get<std::string>();
-    condImageDirectory = j.at("Condition Image Directory").get<std::string>();
+    rootImageDirectory = j.at("Root Image Directory").get<std::string>();
 
     // these are technically 'optional' as they have hardcoded defaults in the config struct
     if (j.contains("Output Directory")) {
@@ -76,118 +76,154 @@ bool Config::load(const std::string& configPath) {
         intervalMode = j["Interval Mode"].get<int>();
     }
 
-    if (!fs::exists(origImageDirectory) || !fs::is_directory(origImageDirectory)) {
-        std::string msg = "[Config] Image directory not found: " + origImageDirectory.string();
+    if (!fs::exists(rootImageDirectory) || !fs::is_directory(rootImageDirectory)) {
+        std::string msg = "[Config] Image directory not found: " + rootImageDirectory.string();
         Utils::FatalError(msg);
         return false;
     }
 
-    if (!fs::exists(condImageDirectory) || !fs::is_directory(condImageDirectory)) {
-        std::string msg = "[Config] Image directory not found: " + condImageDirectory.string();
-        Utils::FatalError(msg);
+
+    return true;
+}
+
+bool Config::loadExperimentInfo(const std::string& inputPath) {
+
+    // expected header:
+     /*
+     # ============================================================                              1
+     # Experiment: VESA foveation assessement                                                    2
+     # Subject ID: Test                                                                          3
+     # Subject Age: 20                                                                           4
+     # Subject Gender: m/f                                                                       5
+     # Group: 1                                                                                  6
+     # Session: 1                                                                                7
+     # ============================================================                              8
+     imageName,Left0,Right0,Left1,Right1, posX_L, posY_L, posX_R, posY_R, order                  9
+     ....
+     */
+
+    std::ifstream file(inputPath);
+    if (!file.is_open()) {
+        std::cerr << "[Config] Could not open trials file: " << inputPath << "\n";
         return false;
+    }
+
+    std::string line;
+
+    while (std::getline(file, line)) {
+        line = trim(line);
+
+        // stop once we reach the main header
+        if (line.starts_with("imageName,")) {
+            break;
+        }
+
+        //ignore empty lines
+        if (line.empty() || line[0] != '#') {
+            continue;
+        }
+
+        // remove # char
+        line = trim(line.substr(1));
+
+        // ignore the ==== seperator
+        if (line.empty() || line[0] == '=') {
+            continue;
+        }
+
+        // split to key: value
+        const size_t colon = line.find(':');
+        if (colon == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = trim(line.substr(0, colon));
+        const std::string value = trim(line.substr(colon + 1));
+
+        if (key == "Experiment") {
+            experimentInfo.experimentName = value;
+        }
+        else if (key == "Subject ID") {
+            experimentInfo.participantID = value;
+        }
+        else if (key == "Subject Age") {
+            experimentInfo.participantAge = std::stoi(value);
+        }
+        else if (key == "Subject Gender") {
+            experimentInfo.participantGender = value[0];
+        }
+        else if (key == "Group") {
+            experimentInfo.groupNumber = std::stoi(value);
+        }
+        else if (key == "Session") {
+            experimentInfo.sessionNumber = std::stoi(value);
+        }
     }
 
     return true;
 }
 
-bool Config::loadTrials(const std::string& trialsPath) {
-    std::ifstream file(trialsPath);
-    if (!file.is_open()) {
-        std::cerr << "[Config] Could not open trials file: " << trialsPath << "\n";
-        return false;
-    }
 
-    trials.clear();
+// takes input file (with paths to images) and builds trial information
+bool Config::loadTrials(const std::string& inputPath) {
+    loadExperimentInfo(inputPath); // load header into experiment info struct
 
+    std::ifstream file(inputPath);
     std::string line;
-    if (!std::getline(file, line)) {
-        std::cerr << "[Config] Trials file is empty: " << trialsPath << "\n";
-        return false;
-    }
-    // expected header: codec,image_name,answer,x,y,stereo mode
+   
 
     int lineNumber = 1;
     while (std::getline(file, line)) {
         ++lineNumber;
-        if (trim(line).empty()) continue;
+        if (trim(line).empty() || lineNumber <= 10) continue; // skip the header block
 
         std::vector<std::string> fields = splitCSVLine(line);
-        if (fields.size() < 6) {
+        if (fields.size() < 10) { // ensure all header columns are present
             std::string msg = "[Config] Malformed trials.csv line " + std::to_string(lineNumber) + ": " + line;
             Utils::FatalError(msg);
             continue;
         }
 
-        std::string codec;
-        std::string imageName;
-        int flickerIndex = 0, positionX = 0, positionY = 0, stereoMode = 0;
+        trials.push_back(parseImageRow(fields));
 
-        try {
-            codec = fields[0];
-            imageName = fields[1];
-            flickerIndex = std::stoi(fields[2]); // 'answer' column
-            positionX = std::stoi(fields[3]);
-            positionY = std::stoi(fields[4]);
-            stereoMode = std::stoi(fields[5]);
-        }
-        catch (const std::exception& e) {
-            std::string msg = "[Config] Could not parse trials.csv line " + std::to_string(lineNumber) + ": " + e.what();
-            Utils::FatalError(msg);
-            continue;
-        }
-
-        // codec determines which subfolder holds the condition images
-        // e.g. condImageDirectory / "fraunhofer_b" / image0_L.*
-        fs::path codecDirectory = condImageDirectory / codec;
-        if (!fs::exists(codecDirectory) || !fs::is_directory(codecDirectory)) {
-            std::string msg = "[Config] Codec directory not found: " + codecDirectory.string();
-            Utils::FatalError(msg);
-            continue;
-        }
-
-        ImagePaths img;
-        img.name = imageName;
-        img.codec = codec;
-        img.flickerIndex = flickerIndex;
-        img.positionX = positionX;
-        img.positionY = positionY;
-        img.viewingMode = stereoMode;
-
-        img.L_orig = findImage(imageName, "_L", origImageDirectory);
-        img.R_orig = findImage(imageName, "_R", origImageDirectory);
-        img.L_dec = findImage(imageName, "_L", codecDirectory);
-        img.R_dec = findImage(imageName, "_R", codecDirectory);
-
-        // warn about any missing permutations
-        auto warn = [&](const fs::path& p, const std::string& suffix, const fs::path& dir) {
-            if (p.empty()) {
-                std::string msg = "[Config] Warning: no file found for \"" + imageName + suffix + ".*\" in " + dir.string();
-                Utils::FatalError(msg);
-            }
-            };
-
-        warn(img.L_orig, "_L", origImageDirectory);
-        warn(img.R_orig, "_R", origImageDirectory);
-        warn(img.L_dec, "_L", codecDirectory);
-        warn(img.R_dec, "_R", codecDirectory);
-
-        trials.push_back(img);
     }
 
     return true;
 }
 
-fs::path Config::findImage(const std::string& name, const std::string& suffix, const fs::path imageDirectory) const {
-    std::string stem = name + suffix; // e.g. "image0_L"
+ImagePaths Config::parseImageRow(std::vector<std::string> fields) {
+    ImagePaths imagePaths;
 
-    for (const auto& entry : fs::directory_iterator(imageDirectory)) {
-        if (!entry.is_regular_file()) continue;
+    imagePaths.name = fields[0];
 
-        std::string filename = entry.path().filename().string();
-        if (filename.rfind(stem, 0) == 0)  // starts with stem
-            return entry.path();
+    imagePaths.L_orig = rootImageDirectory / fields[1];
+    imagePaths.R_orig = rootImageDirectory / fields[2];
+    imagePaths.L_dec = rootImageDirectory / fields[3];
+    imagePaths.R_dec = rootImageDirectory / fields[4];
+
+    imagePaths.fixationCoords.Left.X = std::stoi(fields[5]);
+    imagePaths.fixationCoords.Left.Y = std::stoi(fields[6]);
+    imagePaths.fixationCoords.Right.X = std::stoi(fields[7]);
+    imagePaths.fixationCoords.Right.Y = std::stoi(fields[8]);
+
+    imagePaths.flickerIndex = std::stoi(fields[9]);
+
+    // validate all four image paths
+    if (!fs::exists(imagePaths.L_orig)) {
+        Utils::FatalError("[Config] Image does not exist: " + imagePaths.L_orig.string());
     }
 
-    return {};
+    if (!fs::exists(imagePaths.R_orig)) {
+        Utils::FatalError( "[Config] Image does not exist: " + imagePaths.R_orig.string());
+    }
+
+    if (!fs::exists(imagePaths.L_dec)) {
+        Utils::FatalError("[Config] Image does not exist: " + imagePaths.L_dec.string());
+    }
+
+    if (!fs::exists(imagePaths.R_dec)) {
+        Utils::FatalError("[Config] Image does not exist: " + imagePaths.R_dec.string());
+    }
+
+    return imagePaths;
 }
