@@ -65,6 +65,7 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
     glfwSetWindowUserPointer(m_window, this);
     glfwSetKeyCallback(m_window, keyCallback);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
+    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // disable cursor
 
     // init the renderer
     if (!m_renderer.init(m_window, m_monitorWidth, m_monitorHeight, m_config.displayMode))
@@ -385,7 +386,8 @@ void App::recordResponse(int key) {
         showBuffer();
     }
     else { // 2 interval mode
-        m_phase = TrialPhase::ShowFullFieldImage;
+        //m_phase = TrialPhase::ShowFullFieldImage;
+        showBuffer();
     }
 
     m_phaseStart = glfwGetTime();
