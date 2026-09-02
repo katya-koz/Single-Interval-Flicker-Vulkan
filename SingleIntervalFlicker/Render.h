@@ -70,8 +70,11 @@ private:
         uint32_t texSlot;
     };
 
-    struct CrosshairPushConstants {
-        float aspect;
+    struct FixationPointPushConstants {
+        float centerX;
+        float centerY;
+        float halfSizeX;
+        float halfSizeY;
     };
 
 
@@ -87,9 +90,9 @@ private:
     void createDescriptorSetLayout();
     void allocateDescriptorPool();
     void createGraphicsPipeline();
-    void createCrosshairPipeline();
+    void createFixationPointPipeline();
     void createFramebuffers();
-    void createCrosshairVertexBuffer();
+    void createFixationPointVertexBuffer();
     void createCommandPool();
     void createCommandBuffers();
     void createSyncObjects();
@@ -97,7 +100,7 @@ private:
     // per frame
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const FrameScene& scene);
     void drawQuad(VkCommandBuffer cmd, TextureSlot slot, float x0, float y0, float x1, float y1);
-    void renderCrosshair(VkCommandBuffer cmd);
+    void renderFixationPoint(VkCommandBuffer cmd, FixationCoordinates fixationCoords);
 
     // texture helpers
     void uploadTextureData(Texture& tex, const void* pixels,
@@ -165,12 +168,12 @@ private:
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pipeline = VK_NULL_HANDLE;
 
-    VkPipelineLayout m_crosshairLayout = VK_NULL_HANDLE;
-    VkPipeline m_crosshairPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_fixationPointLayout = VK_NULL_HANDLE;
+    VkPipeline m_fixationPointPipeline = VK_NULL_HANDLE;
 
-    //vertex buffer (crosshair only)
-    VkBuffer m_crosshairVB = VK_NULL_HANDLE;
-    VkDeviceMemory m_crosshairVBMem = VK_NULL_HANDLE;
+    //vertex buffer (fixationPoint only)
+    VkBuffer m_fixationPointVB = VK_NULL_HANDLE;
+    VkDeviceMemory m_fixationPointVBMem = VK_NULL_HANDLE;
 
     // command pool
     VkCommandPool m_commandPool = VK_NULL_HANDLE;

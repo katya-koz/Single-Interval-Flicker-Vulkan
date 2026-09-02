@@ -22,6 +22,16 @@ enum TextureSlot : int {
     MAX_TEXTURES
 };
 
+struct Coords {
+    int X = 0;
+    int Y = 0;
+};
+
+struct FixationCoordinates {
+    Coords Left = Coords();
+    Coords Right = Coords();
+};
+
 // What App asks the renderer to put on screen this frame.
 // The renderer translates this into Vulkan draw calls.
 struct FrameScene {
@@ -32,7 +42,7 @@ struct FrameScene {
         ShowImage,                 // fullscreen TEX_ORIG_L/R — this interval holds the original
         WaitForResponse,           // TEX_WAIT_L / TEX_WAIT_R
         ShowBuffer,                // Show the buffer grey screen between images within same trial
-        Blank                      // clear to black, crosshair only
+        Blank                      // clear to black, fixationPoint only
     };
 
     Mode mode = Mode::Blank;
@@ -44,7 +54,10 @@ struct FrameScene {
     bool flickerShow = false;
     int  flickerIndex = 0;
 
-    // crosshair is always drawn
-    bool drawCrosshair = false;
+    // fixation is always drawn
+    bool drawFixationPoint = true;
+
+    FixationCoordinates fixationPointCoords = FixationCoordinates();
     
 };
+

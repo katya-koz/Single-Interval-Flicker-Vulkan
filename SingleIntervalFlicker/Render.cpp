@@ -40,26 +40,31 @@ static const std::vector<const char*> DEVICE_EXTENSIONS = {
     //VK_EXT_HDR_METADATA_EXTENSION_NAME, no longer needed
 };
 
-// crosshair geometry (t -> thickness, s -> size/ half length)
-static constexpr float CROSSHAIR_T = 0.001f;
-static constexpr float CROSSHAIR_S = 0.02f;
+// fixationPoint geometry (61x61 px, 5px thick)
+static constexpr float CROSSHAIR_SIZE_PX = 61.0f;
+static constexpr float CROSSHAIR_THICKNESS_PX = 5.0f;
+
+static constexpr float CROSSHAIR_HALF_THICKNESS_RATIO = CROSSHAIR_THICKNESS_PX / CROSSHAIR_SIZE_PX;
 
 // these vertices define the shape of the cross hair
 static const float CROSSHAIR_VERTS[] = {
-    // horizontal bar (left monitor only, indices 0-5)
-    -CROSSHAIR_S, -CROSSHAIR_T,
-     CROSSHAIR_S, -CROSSHAIR_T,
-     CROSSHAIR_S,  CROSSHAIR_T,
-    -CROSSHAIR_S, -CROSSHAIR_T,
-     CROSSHAIR_S,  CROSSHAIR_T,
-    -CROSSHAIR_S,  CROSSHAIR_T,
-    // vertical bar (right monitor only, indices 6-11)
-    -CROSSHAIR_T, -CROSSHAIR_S,
-     CROSSHAIR_T, -CROSSHAIR_S,
-     CROSSHAIR_T,  CROSSHAIR_S,
-    -CROSSHAIR_T, -CROSSHAIR_S,
-     CROSSHAIR_T,  CROSSHAIR_S,
-    -CROSSHAIR_T,  CROSSHAIR_S,
+    // horizontal
+    -1.0f, -CROSSHAIR_HALF_THICKNESS_RATIO,
+     1.0f, -CROSSHAIR_HALF_THICKNESS_RATIO,
+     1.0f,  CROSSHAIR_HALF_THICKNESS_RATIO,
+
+    -1.0f, -CROSSHAIR_HALF_THICKNESS_RATIO,
+     1.0f,  CROSSHAIR_HALF_THICKNESS_RATIO,
+    -1.0f,  CROSSHAIR_HALF_THICKNESS_RATIO,
+
+    // vertical
+    -CROSSHAIR_HALF_THICKNESS_RATIO, -1.0f,
+     CROSSHAIR_HALF_THICKNESS_RATIO, -1.0f,
+     CROSSHAIR_HALF_THICKNESS_RATIO,  1.0f,
+
+    -CROSSHAIR_HALF_THICKNESS_RATIO, -1.0f,
+     CROSSHAIR_HALF_THICKNESS_RATIO,  1.0f,
+    -CROSSHAIR_HALF_THICKNESS_RATIO,  1.0f,
 };
 
 /// <summary>
@@ -77,16 +82,16 @@ Renderer::~Renderer() {
         if (m_inFlightFences[i]) vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
     }
 
-    if (m_crosshairVB) vkDestroyBuffer(m_device, m_crosshairVB, nullptr);
-    if (m_crosshairVBMem) vkFreeMemory(m_device, m_crosshairVBMem, nullptr);
+    if (m_fixationPointVB) vkDestroyBuffer(m_device, m_fixationPointVB, nullptr);
+    if (m_fixationPointVBMem) vkFreeMemory(m_device, m_fixationPointVBMem, nullptr);
 
     if (m_descPool) vkDestroyDescriptorPool(m_device, m_descPool, nullptr);
     if (m_descSetLayout) vkDestroyDescriptorSetLayout(m_device, m_descSetLayout, nullptr);
 
     if (m_pipeline) vkDestroyPipeline(m_device, m_pipeline, nullptr);
     if (m_pipelineLayout) vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-    if (m_crosshairPipeline) vkDestroyPipeline(m_device, m_crosshairPipeline, nullptr);
-    if (m_crosshairLayout) vkDestroyPipelineLayout(m_device, m_crosshairLayout, nullptr);
+    if (m_fixationPointPipeline) vkDestroyPipeline(m_device, m_fixationPointPipeline, nullptr);
+    if (m_fixationPointLayout) vkDestroyPipelineLayout(m_device, m_fixationPointLayout, nullptr);
 
     for (auto fb : m_framebuffers) vkDestroyFramebuffer(m_device, fb, nullptr);
     for (auto iv : m_swapImageViews) vkDestroyImageView(m_device, iv, nullptr);
@@ -131,9 +136,9 @@ bool Renderer::init(GLFWwindow* window, int monitorWidth, int monitorHeight, int
     createCommandPool(); // allocates GPU command buffers
     allocateDescriptorPool(); // allocates description sets
     createGraphicsPipeline(); // pipeline for drawing textured quads
-    createCrosshairPipeline(); // differnet pipeline for drawing the crosshair/ fixation point
+    createFixationPointPipeline(); // differnet pipeline for drawing the fixationPoint/ fixation point
     createFramebuffers(); // wrap image views into frame buffer objects
-    createCrosshairVertexBuffer(); // uploadss crosshair geometry to the GPU
+    createFixationPointVertexBuffer(); // uploadss fixationPoint geometry to the GPU
     createCommandBuffers(); // creates command buffers,one per frame in flight
     createSyncObjects(); // create semaphores and fences for syncing
     return true;
@@ -285,7 +290,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 
     // render pass (clears frame buffer to grey)
     VkClearValue clearColor{};
-    clearColor.color = { 0.3f, 0.3f, 0.3f, 1.0f }; // grey
+    clearColor.color = { 0.4f, 0.4f, 0.4f, 1.0f }; // grey
     //clearColor.color = { 0.0f,0.0f,0.0f, 1.0f };
     VkRenderPassBeginInfo rpi{};
     rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -390,6 +395,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
             drawQuad(cmd, TEX_L, rL.x0, rL.y0, rL.x1, rL.y1);
             setViewport(m_monitorWidth);
             drawQuad(cmd, TEX_R, rR.x0, rR.y0, rR.x1, rR.y1);
+            if (scene.drawFixationPoint) renderFixationPoint(cmd, scene.fixationPointCoords);
             break;
         }
 
@@ -402,6 +408,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
             drawQuad(cmd, TEX_ORIG_L, rL.x0, rL.y0, rL.x1, rL.y1);
             setViewport(m_monitorWidth);
             drawQuad(cmd, TEX_ORIG_R, rR.x0, rR.y0, rR.x1, rR.y1);
+            if (scene.drawFixationPoint) renderFixationPoint(cmd, scene.fixationPointCoords);
             break;
         }
 
@@ -427,7 +434,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
         case FrameScene::Mode::ShowBuffer:
         {
             // clear already handled by render pass
-            // same as blank, added for code readability or to add a possible 'fixation' screen between
+            if (scene.drawFixationPoint) renderFixationPoint(cmd, scene.fixationPointCoords);
             break;
         }
 
@@ -437,9 +444,6 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
             break;
         }
     }
-
-    // draw the crosshair
-    if (scene.drawCrosshair) renderCrosshair(cmd);
 
     vkCmdEndRenderPass(cmd);
     vkEndCommandBuffer(cmd);
@@ -484,33 +488,101 @@ void Renderer::drawQuad(VkCommandBuffer cmd, TextureSlot slot, float x0, float y
 
 
 /// <summary>
-/// Draws the fixation cross. This is the render pipeline for the crosshair.
+/// Draws the fixation cross based on given x,y coords for left and right displays. 
+/// This is the render pipeline for the fixationPoint.
 /// </summary>
 /// <param name="cmd"></param>
-void Renderer::renderCrosshair(VkCommandBuffer cmd) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_crosshairPipeline);
+/// <summary>
+/// Draws the fixation cross, centered at the given (per-monitor) pixel coordinates.
+/// Coordinates are relative to the *original* stimulus image; since the displayed
+/// image is mirrored left-right (see uploadTexture()), the fixation point is mirrored
+/// the same way so it lands on the same visual feature. Each bar has a fixed
+/// CROSSHAIR_SIZE_PX x CROSSHAIR_SIZE_PX footprint, independent of resolution.
+/// </summary>
+void Renderer::renderFixationPoint(
+    VkCommandBuffer cmd,
+    FixationCoordinates fixationCoords)
+{
+    vkCmdBindPipeline(
+        cmd,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_fixationPointPipeline);
 
-    VkBuffer     vbs[] = { m_crosshairVB };
+    VkBuffer vbs[] = { m_fixationPointVB };
     VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
 
-    auto setViewport = [&](int xOff) {
-        VkViewport vp{ (float)xOff, 0, (float)m_monitorWidth, (float)m_monitorHeight, 0, 1 };
-        vkCmdSetViewport(cmd, 0, 1, &vp);
-        VkRect2D sc{ { xOff, 0 }, { (uint32_t)m_monitorWidth, (uint32_t)m_monitorHeight } };
-        vkCmdSetScissor(cmd, 0, 1, &sc);
-    };
+    vkCmdBindVertexBuffers(
+        cmd,
+        0,
+        1,
+        vbs,
+        offsets);
 
-    CrosshairPushConstants chp{ (float)m_monitorWidth / (float)m_monitorHeight }; // push aspect ratio so that the vertex shader for the crosshair can correct for non square monitors
-    vkCmdPushConstants(cmd, m_crosshairLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(chp), &chp);
+    auto setViewport = [&](int xOff)
+        {
+            VkViewport vp{};
+            vp.x = static_cast<float>(xOff);
+            vp.y = 0.0f;
+            vp.width = static_cast<float>(m_monitorWidth);
+            vp.height = static_cast<float>(m_monitorHeight);
+            vp.minDepth = 0.0f;
+            vp.maxDepth = 1.0f;
 
-    // draw differnet parts of the crosshair on different monitors. 
-    // that way, when the eyes are correctly converged on the steroscopic mirror setup, the crosshair will be correct
-    setViewport(0);
-    vkCmdDraw(cmd, 6, 1, 0, 0); // horizontal bar on left monitor
+            vkCmdSetViewport(cmd, 0, 1, &vp);
 
-    setViewport(m_monitorWidth);
-    vkCmdDraw(cmd, 6, 1, 6, 0); // vertical bar on right monitor
+            VkRect2D scissor{};
+            scissor.offset = { xOff, 0 };
+            scissor.extent = {
+                static_cast<uint32_t>(m_monitorWidth),
+                static_cast<uint32_t>(m_monitorHeight)
+            };
+
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+        };
+
+
+    const float halfSizeX =
+        CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorWidth);
+
+    const float halfSizeY =
+        CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorHeight);
+
+    auto drawCross =
+        [&](int xOff, const Coords& c, const Texture& tex)
+        {
+            // c.X / c.Y are coordinates in the full image
+            const float mirroredX = static_cast<float>(tex.width - 1 - c.X);
+            const float mirroredY = static_cast<float>(tex.height - 1 - c.Y);
+
+            // position of the full image on the monitor (can be negative if image is bigger than monitor, meaning some was cut off)
+            const float imageOriginX = (static_cast<float>(m_monitorWidth) - tex.width) / 2.0f;
+            const float imageOriginY = (static_cast<float>(m_monitorHeight) - tex.height) / 2.0f;
+
+            // convert image coordinates -> monitor coordinates
+            const float screenX = imageOriginX + mirroredX;
+            const float screenY = imageOriginY + mirroredY;
+        
+            // monitor pixels -> NDC.
+            const float ndcX = 2.0f * (screenX + 0.5f) / static_cast<float>(m_monitorWidth) - 1.0f;
+            const float ndcY = 1.0f - 2.0f * (screenY + 0.5f) / static_cast<float>(m_monitorHeight);
+
+            FixationPointPushConstants pc{};
+
+            pc.centerX = ndcX;
+            pc.centerY = ndcY;
+            pc.halfSizeX = halfSizeX;
+            pc.halfSizeY = halfSizeY;
+
+            vkCmdPushConstants( cmd, m_fixationPointLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+            setViewport(xOff);
+
+            vkCmdDraw(cmd, 6, 1, 0, 0);
+            vkCmdDraw(cmd, 6, 1, 6, 0);
+        };
+
+    drawCross(0, fixationCoords.Left, m_textures[TEX_ORIG_L]);
+
+    drawCross(m_monitorWidth, fixationCoords.Right, m_textures[TEX_ORIG_R]);
 }
 
 /// <summary>
@@ -1174,7 +1246,7 @@ void Renderer::createGraphicsPipeline() {
     vkDestroyShaderModule(m_device, fragMod, nullptr);
 }
 
-void Renderer::createCrosshairPipeline() {
+void Renderer::createFixationPointPipeline() {
     auto vertSpv = compileGLSL(CROSSHAIR_VERT_GLSL, shaderc_vertex_shader, "ch.vert");
     auto fragSpv = compileGLSL(CROSSHAIR_FRAG_GLSL, shaderc_fragment_shader, "ch.frag");
 
@@ -1242,13 +1314,13 @@ void Renderer::createCrosshairPipeline() {
 
     VkPushConstantRange pcr{};
     pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    pcr.size = sizeof(CrosshairPushConstants);
+    pcr.size = sizeof(FixationPointPushConstants);
 
     VkPipelineLayoutCreateInfo pli{};
     pli.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pli.pushConstantRangeCount = 1;
     pli.pPushConstantRanges = &pcr;
-    vkCreatePipelineLayout(m_device, &pli, nullptr, &m_crosshairLayout);
+    vkCreatePipelineLayout(m_device, &pli, nullptr, &m_fixationPointLayout);
 
     VkGraphicsPipelineCreateInfo pci{};
     pci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1261,12 +1333,12 @@ void Renderer::createCrosshairPipeline() {
     pci.pMultisampleState = &ms;
     pci.pColorBlendState = &blend;
     pci.pDynamicState = &dyn;
-    pci.layout = m_crosshairLayout;
+    pci.layout = m_fixationPointLayout;
     pci.renderPass = m_renderPass;
 
     if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci,
-        nullptr, &m_crosshairPipeline) != VK_SUCCESS)
-        throw std::runtime_error("createCrosshairPipeline failed");
+        nullptr, &m_fixationPointPipeline) != VK_SUCCESS)
+        throw std::runtime_error("createFixationPointPipeline failed");
 
     vkDestroyShaderModule(m_device, vertMod, nullptr);
     vkDestroyShaderModule(m_device, fragMod, nullptr);
@@ -1287,7 +1359,7 @@ void Renderer::createFramebuffers() {
     }
 }
 
-void Renderer::createCrosshairVertexBuffer() {
+void Renderer::createFixationPointVertexBuffer() {
     const VkDeviceSize size = sizeof(CROSSHAIR_VERTS);
 
     VkBuffer       stageBuf;
@@ -1304,11 +1376,11 @@ void Renderer::createCrosshairVertexBuffer() {
     createBuffer(size,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        m_crosshairVB, m_crosshairVBMem);
+        m_fixationPointVB, m_fixationPointVBMem);
 
     VkCommandBuffer cmd = beginSingleTimeCommands();
     VkBufferCopy    cp{ 0, 0, size };
-    vkCmdCopyBuffer(cmd, stageBuf, m_crosshairVB, 1, &cp);
+    vkCmdCopyBuffer(cmd, stageBuf, m_fixationPointVB, 1, &cp);
     endSingleTimeCommands(cmd);
 
     vkDestroyBuffer(m_device, stageBuf, nullptr);
