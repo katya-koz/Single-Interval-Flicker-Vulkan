@@ -42,7 +42,7 @@ struct Config {
     double flickerRate = 10.0;  // hz
     double waitTime = 0.6; // time between images
     double imageTime = 2.0; // time images are shown
-    int targetFPS = 30;
+    //int targetFPS = 30; // removed. frame lock interferes with vulkan's natural v sync and messes up the timings for scene switching.
 
     // load and parse the json config
     bool loadConfig(const std::string& configPath);

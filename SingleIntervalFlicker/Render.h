@@ -64,6 +64,22 @@ private:
         uint32_t height = 0;
     };
 
+
+    //after opencv loads image (cpu intensive task, to be done on another thread)
+    struct DecodedImage {
+        std::vector<uint8_t> pixels;
+        VkFormat format = VK_FORMAT_UNDEFINED;
+        int width = 0;
+        int height = 0;
+    };
+
+    //// CPU decoding step (can be called from any thread)
+    //// this is expensive
+    DecodedImage decodeImageForUpload(const std::string& path) const;
+
+    //// GPU only. can only be called from main renderer thread
+    void uploadDecodedTexture(TextureSlot slot, const DecodedImage& img);
+
     // push constants for the quad pipeline
     struct QuadPushConstants {
         float x0, y0, x1, y1;
@@ -141,6 +157,8 @@ private:
 
     // config if in sdr/hdr mode
     bool m_isHDR = false;
+
+    bool m_next_trial_textures_loaded = false;
 
     // core vulkan objs
     VkInstance m_instance = VK_NULL_HANDLE;

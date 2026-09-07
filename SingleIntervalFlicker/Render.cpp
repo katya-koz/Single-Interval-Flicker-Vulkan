@@ -290,7 +290,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 
     // render pass (clears frame buffer to grey)
     VkClearValue clearColor{};
-    clearColor.color = { 0.4f, 0.4f, 0.4f, 1.0f }; // grey
+    clearColor.color = { 0.1f, 0.1f, 0.1f, 1.0f }; // same grey as response
     //clearColor.color = { 0.0f,0.0f,0.0f, 1.0f };
     VkRenderPassBeginInfo rpi{};
     rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
