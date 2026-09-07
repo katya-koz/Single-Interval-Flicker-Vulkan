@@ -5,7 +5,7 @@
 #include "config.h"
 #include "csv.h"
 #include "utils.h"
-
+#include <thread>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
@@ -21,30 +21,19 @@ enum class TrialPhase {
     WaitForResponse,
     Done
 };
-// old
-//struct TrialResult {
-//    int             index;
-//    std::string     imageName;
-//    std::string     viewingMode;
-//    int             answer;
-//    int             actual;
-//    int          reactionTimeMS;
-//    int             positionX;
-//    int             positionY;
-//    std::string     codec;
-//};
+
 
 struct TrialResult {
-    std::string     codec;
-    std::string     imageName;
-    int             actual;
-    int             positionX_L;
-    int             positionY_L;
-    int             positionX_R;
-    int             positionY_R;
-    std::string     viewingMode;
-    int             response;
-    int             reactionTimeMS;
+    std::string codec;
+    std::string imageName;
+    int actual;
+    int positionX_L;
+    int positionY_L;
+    int positionX_R;
+    int positionY_R;
+    std::string viewingMode;
+    int response;
+    int reactionTimeMS;
     
 };
 
@@ -58,7 +47,7 @@ public:
 
     bool init(const std::string& configPath, std::string& inputPath);
     void run();
-
+     
 private:
     void initGame();
     void update();
@@ -67,6 +56,8 @@ private:
     void pollGamepad();
     void showBuffer();
     void showNextImageInTrial();
+    std::thread m_decodeThread;
+
 
     // translate current phase + flicker state into a scene description
     // so that the renderer can draw
@@ -76,12 +67,15 @@ private:
     void loadInstructionsTextures();
     void loadTexturesForTrial(const ImagePaths& img);
 
+    void decodeImagesForTrial(const ImagePaths& img);
+    void decodeImageForUpload(TextureSlot slot, const std::string& path);
+    void uploadDecodedTexture(TextureSlot slot);
     // glfw callbacks
     static void keyCallback(GLFWwindow*, int, int, int, int);
     static void framebufferSizeCallback(GLFWwindow*, int, int) {} // unused
 
 private:
-
+    
     GLFWwindow* m_window = nullptr;
     int m_monitorWidth = 0;
     int m_monitorHeight = 0;

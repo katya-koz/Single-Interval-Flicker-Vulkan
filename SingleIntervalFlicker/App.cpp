@@ -16,6 +16,8 @@
 /// Handles the app's lifecycle
 /// </summary>
 App::~App() {
+    if (m_decodeThread.joinable())
+        m_decodeThread.join();
     m_renderer.waitIdle();   // make sure GPU is done before window dies
 
     if (m_window) glfwDestroyWindow(m_window);
@@ -227,7 +229,7 @@ void App::update() {
 
     else if (m_phase == TrialPhase::ShowFullFieldImage) {
         if (elapsed >= timeoutDuration) {
-            //std::cout << "elapsed time: " << elapsed << " seconds \n";
+            std::cout << "elapsed time: " << elapsed << " seconds \n";
             if (m_interTrialImageIndex == 0) {
                 // if it's the first image, show the blank buffer screen next
                 m_interTrialImageIndex++;
@@ -244,7 +246,7 @@ void App::update() {
         }
         if(m_config.trials[m_trialIndex].flickerIndex == m_interTrialImageIndex) { // flicker only if this is the flicker index
             if (now - m_flickerLast >= m_flickerInterval) {
-                //std::cout << "flicker time: " << (now - m_flickerLast) << " seconds \n";
+                std::cout << "flicker time: " << (now - m_flickerLast) << " seconds \n";
                 m_flickerLast = now;
                 m_flickerShow = !m_flickerShow;
             }
@@ -307,12 +309,21 @@ void App::showNextImageInTrial() {
 /// <param name="key"></param>
 void App::recordResponse(int key) {
     // only record response if currently waiting for response, or doing side by side image view
-  
     if (m_phase != TrialPhase::ShowSideBySideImages && m_phase != TrialPhase::WaitForResponse)
         return;
-    // moved trial load here to stop showing image at end (blocking load textures call caused image view to hang)
-    if ((m_trialIndex + 1) < (int)m_config.trials.size())
-        loadTexturesForTrial(m_config.trials[m_trialIndex + 1]);
+   
+    // while waiting for response, begin loading/processing images on a different thread 
+    if (m_decodeThread.joinable())
+        m_decodeThread.join();
+
+    if ((m_trialIndex + 1) < (int)m_config.trials.size()) {
+        m_decodeThread = std::thread(&App::decodeImagesForTrial, this,
+            m_config.trials[m_trialIndex + 1]);
+    }
+
+    //// moved trial load here to stop showing image at end (blocking load textures call caused image view to hang)
+    //if ((m_trialIndex + 1) < (int)m_config.trials.size())
+    //    loadTexturesForTrial(m_config.trials[m_trialIndex + 1]);
 
     TrialResult result;
     result.imageName = m_config.trials[m_trialIndex].name;
@@ -375,6 +386,9 @@ void App::recordResponse(int key) {
         std::to_string((int)(result.reactionTimeMS)),
         m_config.experimentInfo.participantID
     });
+
+    if (m_decodeThread.joinable())
+        m_decodeThread.join();
 
     m_trialIndex++;
 
@@ -439,16 +453,16 @@ void App::pollGamepad() {
 /// </summary>
 void App::loadInstructionsTextures() {
     if (m_config.intervalMode == 0) { // 2 interval mode, load "first or second image?" for response
-        m_renderer.uploadTexture(TEX_WAIT_L, "./assets/instructions/responsescreen0_L.ppm");
-        m_renderer.uploadTexture(TEX_WAIT_R, "./assets/instructions/responsescreen0_R.ppm");
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_L, "./assets/instructions/responsescreen0_L.ppm");
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_R, "./assets/instructions/responsescreen0_R.ppm");
     }
     else { // single interval mode, load "left or right image?" for response 
-        m_renderer.uploadTexture(TEX_WAIT_L, "./assets/instructions/responsescreen1_L.ppm");
-        m_renderer.uploadTexture(TEX_WAIT_R, "./assets/instructions/responsescreen1_R.ppm");
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_L, "./assets/instructions/responsescreen1_L.ppm");
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_R, "./assets/instructions/responsescreen1_R.ppm");
     }
 
-    m_renderer.uploadTexture(TEX_START_L, "./assets/instructions/startscreen_L.ppm");
-    m_renderer.uploadTexture(TEX_START_R, "./assets/instructions/startscreen_R.ppm");
+    m_renderer.decodeAndUploadTexture(TEX_START_L, "./assets/instructions/startscreen_L.ppm");
+    m_renderer.decodeAndUploadTexture(TEX_START_R, "./assets/instructions/startscreen_R.ppm");
 }
 
 /// <summary>
@@ -458,26 +472,67 @@ void App::loadInstructionsTextures() {
 void App::loadTexturesForTrial(const ImagePaths& img) {
     switch (img.viewingMode) {
     case 0: // stereo
-        m_renderer.uploadTexture(TEX_ORIG_L, img.L_orig.string());
-        m_renderer.uploadTexture(TEX_ORIG_R, img.R_orig.string());
-        m_renderer.uploadTexture(TEX_DEC_L, img.L_dec.string());
-        m_renderer.uploadTexture(TEX_DEC_R, img.R_dec.string());
+        m_renderer.decodeAndUploadTexture(TEX_ORIG_L, img.L_orig.string());
+        m_renderer.decodeAndUploadTexture(TEX_ORIG_R, img.R_orig.string());
+        m_renderer.decodeAndUploadTexture(TEX_DEC_L, img.L_dec.string());
+        m_renderer.decodeAndUploadTexture(TEX_DEC_R, img.R_dec.string());
         break;
     case 1: // left only
-        m_renderer.uploadTexture(TEX_ORIG_L, img.L_orig.string());
-        m_renderer.uploadTexture(TEX_ORIG_R, img.L_orig.string());
-        m_renderer.uploadTexture(TEX_DEC_L, img.L_dec.string());
-        m_renderer.uploadTexture(TEX_DEC_R, img.L_dec.string());
+        m_renderer.decodeAndUploadTexture(TEX_ORIG_L, img.L_orig.string());
+        m_renderer.decodeAndUploadTexture(TEX_ORIG_R, img.L_orig.string());
+        m_renderer.decodeAndUploadTexture(TEX_DEC_L, img.L_dec.string());
+        m_renderer.decodeAndUploadTexture(TEX_DEC_R, img.L_dec.string());
         break;
     case 2: // right only
-        m_renderer.uploadTexture(TEX_ORIG_L, img.R_orig.string());
-        m_renderer.uploadTexture(TEX_ORIG_R, img.R_orig.string());
-        m_renderer.uploadTexture(TEX_DEC_L, img.R_dec.string());
-        m_renderer.uploadTexture(TEX_DEC_R, img.R_dec.string());
+        m_renderer.decodeAndUploadTexture(TEX_ORIG_L, img.R_orig.string());
+        m_renderer.decodeAndUploadTexture(TEX_ORIG_R, img.R_orig.string());
+        m_renderer.decodeAndUploadTexture(TEX_DEC_L, img.R_dec.string());
+        m_renderer.decodeAndUploadTexture(TEX_DEC_R, img.R_dec.string());
         break;
     default:
         Utils::FatalError("[App] Invalid viewing mode: " + std::to_string(img.viewingMode) + ". Must be one of: 0 (stereo), 1 (left only), 2 (right only) ");
     }
+}
+/// <summary>
+/// This is to seperately decode images (which is cpu intensive)
+/// </summary>
+/// <param name="img"></param>
+void App::decodeImagesForTrial(const ImagePaths& img) {
+    switch (img.viewingMode) {
+    case 0: // stereo
+        decodeImageForUpload(TEX_ORIG_L, img.L_orig.string());
+        decodeImageForUpload(TEX_ORIG_R, img.R_orig.string());
+        decodeImageForUpload(TEX_DEC_L, img.L_dec.string());
+        decodeImageForUpload(TEX_DEC_R, img.R_dec.string());
+        break;
+    case 1: // left only
+        decodeImageForUpload(TEX_ORIG_L, img.L_orig.string());
+        decodeImageForUpload(TEX_ORIG_R, img.L_orig.string());
+        decodeImageForUpload(TEX_DEC_L, img.L_dec.string());
+        decodeImageForUpload(TEX_DEC_R, img.L_dec.string());
+        break;
+    case 2: // right only
+        decodeImageForUpload(TEX_ORIG_L, img.R_orig.string());
+        decodeImageForUpload(TEX_ORIG_R, img.R_orig.string());
+        decodeImageForUpload(TEX_DEC_L, img.R_dec.string());
+        decodeImageForUpload(TEX_DEC_R, img.R_dec.string());
+        break;
+    default:
+        Utils::FatalError("[App] Invalid viewing mode: " + std::to_string(img.viewingMode) + ". Must be one of: 0 (stereo), 1 (left only), 2 (right only) ");
+    }
+}
+
+/// <summary>
+/// Helper to decode 1 single image. Wrapper for renderer method.
+/// Saves decoded image to memory on complete.
+/// </summary>
+/// <param name="path"></param>
+
+void App::decodeImageForUpload(TextureSlot slot, const std::string& path) {
+    m_renderer.decodeImageForUpload(slot, path);
+}
+void App::uploadDecodedTexture(TextureSlot slot) {
+    m_renderer.uploadDecodedTexture(slot);
 }
 
 // GLFW callbacks

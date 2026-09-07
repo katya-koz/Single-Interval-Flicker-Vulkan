@@ -45,13 +45,19 @@ public:
  
     bool init(GLFWwindow* window, int monitorWidth, int monitorHeight, int displayMode);
  
-    void uploadTexture(TextureSlot slot, const std::string& path);
+    void decodeAndUploadTexture(TextureSlot slot, const std::string& path);
 
     // render & present 1 frame. blocks on vsync (FIFO)
     void drawFrame(const FrameScene& scene);
 
     // call before app destroys the window or releases shared resources
     void waitIdle();
+
+
+    DecodedImage decodeImageForUpload(TextureSlot slot, const std::string& path);
+
+    //// GPU only. can only be called from main renderer thread
+    void uploadDecodedTexture(TextureSlot slot);
 
 private:
     //  per slot texture resourcess
@@ -65,20 +71,18 @@ private:
     };
 
 
-    //after opencv loads image (cpu intensive task, to be done on another thread)
-    struct DecodedImage {
-        std::vector<uint8_t> pixels;
-        VkFormat format = VK_FORMAT_UNDEFINED;
-        int width = 0;
-        int height = 0;
-    };
+    ////after opencv loads image (cpu intensive task, to be done on another thread)
+    //struct DecodedImage {
+    //    std::vector<uint8_t> pixels;
+    //    VkFormat format = VK_FORMAT_UNDEFINED;
+    //    int width = 0;
+    //    int height = 0;
+    //};
 
     //// CPU decoding step (can be called from any thread)
     //// this is expensive
-    DecodedImage decodeImageForUpload(const std::string& path) const;
-
-    //// GPU only. can only be called from main renderer thread
-    void uploadDecodedTexture(TextureSlot slot, const DecodedImage& img);
+    // writes to app memory when completed
+    
 
     // push constants for the quad pipeline
     struct QuadPushConstants {
@@ -207,4 +211,6 @@ private:
     VkDescriptorPool m_descPool = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, MAX_TEXTURES> m_descSets{};
     std::array<Texture, MAX_TEXTURES> m_textures{};
+
+    std::array<DecodedImage, MAX_TEXTURES> m_decodedImages{};
 };
