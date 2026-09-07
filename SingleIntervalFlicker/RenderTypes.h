@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+#include <vulkan/vulkan.h>
 
 //********
 // These are shared types (shared between app.cpp and render.cpp)
@@ -21,6 +23,17 @@ enum TextureSlot : int {
     TEX_WAIT_R,
     MAX_TEXTURES
 };
+
+
+//after opencv loads image (cpu intensive task, to be done on another thread)
+// 
+struct DecodedImage {
+    std::vector<uint8_t> pixels;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    int width = 0;
+    int height = 0;
+};
+
 
 struct Coords {
     int X = 0;

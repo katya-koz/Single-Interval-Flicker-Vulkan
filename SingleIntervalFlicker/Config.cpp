@@ -66,9 +66,9 @@ bool Config::loadConfig(const std::string& configPath) {
     if (j.contains("Image Time (s)")) {
         imageTime = j["Image Time (s)"].get<double>();
     }
-    if (j.contains("Target FPS")) {
-        targetFPS = j["Target FPS"].get<int>();
-    }
+    //if (j.contains("Target FPS")) {
+    //    targetFPS = j["Target FPS"].get<int>();
+    //}
     if (j.contains("Display Mode")) {
         displayMode = j["Display Mode"].get<int>();
     }

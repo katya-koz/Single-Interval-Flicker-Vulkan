@@ -9,6 +9,7 @@
 #include <iostream>
 #include <set>
 #include <stdexcept>
+#include <thread>
 
 // validation layers for debug builds
 #ifdef NDEBUG
@@ -290,7 +291,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 
     // render pass (clears frame buffer to grey)
     VkClearValue clearColor{};
-    clearColor.color = { 0.4f, 0.4f, 0.4f, 1.0f }; // grey
+    clearColor.color = { 0.1f, 0.1f, 0.1f, 1.0f }; // same grey as response
     //clearColor.color = { 0.0f,0.0f,0.0f, 1.0f };
     VkRenderPassBeginInfo rpi{};
     rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -585,14 +586,7 @@ void Renderer::renderFixationPoint(
     drawCross(m_monitorWidth, fixationCoords.Right, m_textures[TEX_ORIG_R]);
 }
 
-/// <summary>
-/// Loads images from the disk. Handles PPM images. 
-/// </summary>
-/// <param name="slot">Texture slot to be loaded in</param>
-/// <param name="path">Image path</param>
-void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
-    // wait for the gpu to finish before updating any texture slots.
-    vkDeviceWaitIdle(m_device);
+DecodedImage Renderer::decodeImageForUpload(TextureSlot slot, const std::string& path) {
 
     // read the PPM max value from the ppm header to determine whether image is HDR
     double ppmMax = 255.0;
@@ -611,7 +605,7 @@ void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
 
     // load pixels in with openCV
     cv::Mat src = cv::imread(path, cv::IMREAD_ANYDEPTH | cv::IMREAD_COLOR);
-    
+
     if (src.empty()) throw std::runtime_error("[Renderer] Failed to load image: " + path);
 
     const bool isHDR = (ppmMax > 255.0); // hdr > 8 bit
@@ -642,13 +636,106 @@ void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
 
     if (!upload.isContinuous()) upload = upload.clone();
 
+    DecodedImage out;
+    out.format = fmt;
+    out.width = upload.cols;
+    out.height = upload.rows;
+    const size_t bytes = upload.total() * upload.elemSize();
+    out.pixels.assign(upload.data, upload.data + bytes);
+
+
+    m_decodedImages[slot] = out;
+    return out;
+}
+
+
+void Renderer::uploadDecodedTexture(TextureSlot slot) {
+    // wait for the gpu to finish any in flight frame before destroying/replacing this slot's texture
+    // destroyTexture() has no synchronization of its own, and a previous frames command buffer
+    // may still be referencing the old texture (MAX_FRAMES_IN_FLIGHT > 1).
+    vkDeviceWaitIdle(m_device);
+
     Texture& tex = m_textures[slot];
+    DecodedImage& decodedImage = m_decodedImages[slot];
     destroyTexture(tex);
-    tex.width = upload.cols;
-    tex.height = upload.rows;
-    uploadTextureData(tex, upload.data, fmt, upload.cols, upload.rows);
+    tex.width = decodedImage.width;
+    tex.height = decodedImage.height;
+    uploadTextureData(tex, decodedImage.pixels.data(), decodedImage.format, decodedImage.width, decodedImage.height);
     updateDescriptorSet(slot, tex);
 }
+
+void Renderer::decodeAndUploadTexture(TextureSlot slot, const std::string& path) {
+    decodeImageForUpload(slot, path);
+    uploadDecodedTexture(slot);  // now waits for GPU idle internally
+}
+
+
+
+/// <summary>
+/// Loads images from the disk. Handles PPM images. 
+/// </summary>
+/// <param name="slot">Texture slot to be loaded in</param>
+/// <param name="path">Image path</param>
+//void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
+//    // wait for the gpu to finish before updating any texture slots.
+//    vkDeviceWaitIdle(m_device);
+//
+//    // read the PPM max value from the ppm header to determine whether image is HDR
+//    double ppmMax = 255.0;
+//    {
+//        std::ifstream f(path, std::ios::binary);
+//        if (f.is_open()) {
+//            std::string magic;
+//            f >> magic;
+//            while (f.peek() == '\n') f.get();
+//            while (f.peek() == '#') f.ignore(4096, '\n');
+//            std::string w, h, maxval;
+//            f >> w >> h >> maxval;
+//            ppmMax = std::stod(maxval);
+//        }
+//    }
+//
+//    // load pixels in with openCV
+//    cv::Mat src = cv::imread(path, cv::IMREAD_ANYDEPTH | cv::IMREAD_COLOR);
+//    
+//    if (src.empty()) throw std::runtime_error("[Renderer] Failed to load image: " + path);
+//
+//    const bool isHDR = (ppmMax > 255.0); // hdr > 8 bit
+//
+//    // convert to linear rgb values
+//    cv::Mat img;
+//    src.convertTo(img, CV_32F, 1.0 / ppmMax); // normalize to [0,1]
+//    cv::cvtColor(img, img, cv::COLOR_BGR2RGB); // openCV uses BGR, and vulkan expects RGB
+//    cv::flip(img, img, -1); // images need to be mirrored (stereoscopic mirror setup), and for some reason they're loaded in upside down, so need to flip on x axis as well to correct for that.
+//    if (!img.isContinuous()) img = img.clone();
+//
+//    // choose vulkan format and pack
+//    VkFormat fmt;
+//    cv::Mat  upload;
+//
+//    if (isHDR && m_isHDR) {
+//        cv::Mat rgba;
+//        cv::cvtColor(img, rgba, cv::COLOR_RGB2RGBA);
+//        rgba.convertTo(upload, CV_16F);
+//        fmt = VK_FORMAT_R16G16B16A16_SFLOAT; // HDR format, 16 b half floats for RGB values
+//    }
+//    else { // non hdr format
+//        cv::Mat rgba;
+//        cv::cvtColor(img, rgba, cv::COLOR_RGB2RGBA);
+//        rgba.convertTo(upload, CV_8U, 255.0); // 8 bit - rescale back from [0,1] to [0,255]
+//        fmt = VK_FORMAT_R8G8B8A8_SRGB;
+//    }
+//
+//    if (!upload.isContinuous()) upload = upload.clone();
+//
+//    Texture& tex = m_textures[slot];
+//    destroyTexture(tex);
+//    tex.width = upload.cols;
+//    tex.height = upload.rows;
+//    uploadTextureData(tex, upload.data, fmt, upload.cols, upload.rows);
+//    updateDescriptorSet(slot, tex);
+//}
+
 
 /// <summary>
 /// Staging buffer upload. 
