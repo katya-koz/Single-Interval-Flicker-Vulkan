@@ -7,10 +7,12 @@
 #include "utils.h"
 #include <thread>
 #define GLFW_INCLUDE_NONE
+#define DEBUG_MOUSE_GAZE
 #include <GLFW/glfw3.h>
 
 #include <string>
 #include <vector>
+#include "EyeTracker.h"
 
 
 enum class TrialPhase {
@@ -77,6 +79,7 @@ private:
     static void framebufferSizeCallback(GLFWwindow*, int, int) {} // unused
 
 private:
+    EyeTracker m_eyetracker;
     
     GLFWwindow* m_window = nullptr;
     int m_monitorWidth = 0;

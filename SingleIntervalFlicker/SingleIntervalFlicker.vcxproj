@@ -145,13 +145,13 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(OpenCV_Path)\include;$(GLFW_Path)\include;$(ProjectDir)\include;$(Vulkan_Path)\Include;$(GLAD_Path)\include;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(OpenCV_Path)\include;$(GLFW_Path)\include;$(ProjectDir)\include;$(Vulkan_Path)\Include;$(GLAD_Path)\include;$(Tobii_Path)\include;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(OpenCV_Path)\x64\vc16\lib;$(GLFW_Path)\lib-vc2022\;$(Vulkan_Path)\Lib;</AdditionalLibraryDirectories>
-      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);opencv_world4120.lib;glfw3.lib;vulkan-1.lib;shaderc_combined.lib;</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OpenCV_Path)\x64\vc16\lib;$(GLFW_Path)\lib-vc2022\;$(Vulkan_Path)\Lib;$(Tobii_Path)\lib;</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);opencv_world4120.lib;glfw3.lib;vulkan-1.lib;shaderc_combined.lib;tobii_research.lib;</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /E /I /Y "$(ProjectDir)assets" "$(OutDir)assets"</Command>
@@ -161,6 +161,7 @@
     <ClCompile Include="App.cpp" />
     <ClCompile Include="Config.cpp" />
     <ClCompile Include="csv.cpp" />
+    <ClCompile Include="EyeTracker.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="Render.cpp" />
   </ItemGroup>
@@ -168,6 +169,7 @@
     <ClInclude Include="App.h" />
     <ClInclude Include="Config.h" />
     <ClInclude Include="csv.h" />
+    <ClInclude Include="EyeTracker.h" />
     <ClInclude Include="Render.h" />
     <ClInclude Include="RenderTypes.h" />
     <ClInclude Include="Shaders.h" />

@@ -542,11 +542,9 @@ void Renderer::renderFixationPoint(
         };
 
 
-    const float halfSizeX =
-        CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorWidth);
+    const float halfSizeX = CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorWidth);
 
-    const float halfSizeY =
-        CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorHeight);
+    const float halfSizeY = CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorHeight);
 
     auto drawCross =
         [&](int xOff, const Coords& c, const Texture& tex)

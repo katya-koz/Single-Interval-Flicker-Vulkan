@@ -71,8 +71,10 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
     glfwSetWindowUserPointer(m_window, this);
     glfwSetKeyCallback(m_window, keyCallback);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
-    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // disable cursor
 
+    #ifndef DEBUG_MOUSE_GAZE
+        glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // disable cursor
+    #endif
     // init the renderer
     if (!m_renderer.init(m_window, m_monitorWidth, m_monitorHeight, m_config.displayMode))
         return false;
@@ -103,7 +105,15 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
                 "Mode",
                 "Response",
                 "Duration",
-                "Subject"
+                "Subject",
+                "Mean Gaze X (Left)",
+                "Mean Gaze Y (Left)",
+                "Mean Gaze X (Right)",
+                "Mean Gaze Y (Right)",
+                "Std. Dev. Gaze X (Left)",
+                "Std. Dev. Gaze Y (Left)",
+                "Std. Dev. Gaze X (Right)",
+                "Std. Dev. Gaze Y (Right)",
             },
         m_config.outputDirectory.string());
 
@@ -124,7 +134,9 @@ void App::run() {
     while (!glfwWindowShouldClose(m_window) && m_phase != TrialPhase::Done) {
         glfwPollEvents();
         update();
-
+        #ifdef DEBUG_MOUSE_GAZE
+             m_eyetracker.updateMouseGaze(m_window, m_monitorWidth);
+        #endif
         m_renderer.drawFrame(buildScene()); // draws the scene
     }
 }
@@ -230,6 +242,7 @@ void App::update() {
 
     else if (m_phase == TrialPhase::ShowFullFieldImage) {
         if (elapsed >= timeoutDuration) {
+            m_eyetracker.stopCollection();
             //std::cout << "elapsed time: " << elapsed << " seconds \n";
             if (m_interTrialImageIndex == 0) {
                 // if it's the first image, show the blank buffer screen next
@@ -283,6 +296,7 @@ void App::advancePhase() {
 
 void App::showBuffer() {
     m_phase = TrialPhase::ShowBuffer;
+    m_eyetracker.startCollection();
     m_phaseStart = glfwGetTime();
 }
 
@@ -371,25 +385,43 @@ void App::recordResponse(int key) {
         PlaySound( soundPath.c_str(), NULL, SND_FILENAME | SND_ASYNC );
     }
         
-    
-    
     m_results.push_back(result);
 
+    // calculate eye tracking statistics
+
+
+    Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
+        m_eyetracker.getSamples(),
+        m_monitorWidth, m_monitorHeight,
+        m_config.trials[m_trialIndex].imageWidth, m_config.trials[m_trialIndex].imageHeight,   // real stimulus resolution
+        result.positionX_L, result.positionY_L,
+        result.positionX_R, result.positionY_R
+    );
+
+    m_eyetracker.clearSamples();
     m_csv.writeRow(
         {
-        result.codec,
-        result.foveatLevel,
-        result.imageName,
-        std::to_string(result.actual),
-        std::to_string(result.positionX_L),
-        std::to_string(result.positionY_L),
-        std::to_string(result.positionX_R),
-        std::to_string(result.positionY_R),
-        result.viewingMode,
-        std::to_string(result.response),
-        std::to_string((int)(result.reactionTimeMS)),
-        m_config.experimentInfo.participantID
-    });
+            result.codec,
+            result.foveatLevel,
+            result.imageName,
+            std::to_string(result.actual),
+            std::to_string(result.positionX_L),
+            std::to_string(result.positionY_L),
+            std::to_string(result.positionX_R),
+            std::to_string(result.positionY_R),
+            result.viewingMode,
+            std::to_string(result.response),
+            std::to_string((int)(result.reactionTimeMS)),
+            m_config.experimentInfo.participantID,
+            std::to_string(gazeStats.leftMean_X),
+            std::to_string(gazeStats.leftMean_Y),
+            std::to_string(gazeStats.rightMean_X),
+            std::to_string(gazeStats.rightMean_Y),
+            std::to_string(gazeStats.leftStdDev_X),
+            std::to_string(gazeStats.leftStdDev_Y),
+            std::to_string(gazeStats.rightStdDev_X),
+            std::to_string(gazeStats.rightStdDev_Y)
+        });
 
     if (m_decodeThread.joinable()) {
         m_decodeThread.join();
@@ -543,7 +575,7 @@ void App::decodeImagesForTrial(const ImagePaths& img) {
 /// <param name="path"></param>
 
 void App::decodeImageForUpload(TextureSlot slot, const std::string& path) {
-    m_renderer.decodeImageForUpload(slot, path);
+    DecodedImage img = m_renderer.decodeImageForUpload(slot, path);
 }
 
 void App::uploadDecodedTexture(TextureSlot slot) {
