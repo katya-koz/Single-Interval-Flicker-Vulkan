@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <random>
 #include "app.h"
+#include <filesystem>
 
 namespace Utils
 {
@@ -48,6 +49,28 @@ namespace Utils
 	//	}
 	//	return;
 	//}
+
+
+	/// <summary>
+	/// Helper to get current directory of executeable. to construct path for assets folder.
+	/// </summary>
+	/// <returns></returns>
+	static std::filesystem::path getExecutableDirectory()
+	{
+		char buffer[MAX_PATH];
+
+		DWORD length = GetModuleFileNameA(
+			nullptr,
+			buffer,
+			MAX_PATH
+		);
+
+		if (length == 0) {
+			throw std::runtime_error("Failed to get executable path.");
+		}
+
+		return std::filesystem::path(buffer).parent_path();
+	}
 
 	// calculate the radius of the foveal view based off screen size, viewing distance, and given foveal width (degrees)
 	static float degreesToRadiusPx(float degrees, float viewingDistanceMeters, float screenWidthMeters, float screenWidthPixels)

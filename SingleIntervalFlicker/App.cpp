@@ -86,15 +86,16 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
         m_config.experimentInfo.participantID,
         m_config.experimentInfo.participantAge,
         m_config.experimentInfo.participantGender,
-        //m_config.experimentInfo.blockNumber, ? dont know if needed...
+        m_config.experimentInfo.block,
         m_config.experimentInfo.sessionNumber,
         m_config.experimentInfo.groupNumber,
         //m_config.intervalMode,  dont need for now
         //m_config.displayMode, dont need for now
             { 
                 "Codec",
+                "Foveation",
                 "Image", 
-                "Actual", 
+                "Interval", 
                 "Position-X (Left)", 
                 "Position-Y (Left)",
                 "Position-X (Right)",
@@ -229,7 +230,7 @@ void App::update() {
 
     else if (m_phase == TrialPhase::ShowFullFieldImage) {
         if (elapsed >= timeoutDuration) {
-            std::cout << "elapsed time: " << elapsed << " seconds \n";
+            //std::cout << "elapsed time: " << elapsed << " seconds \n";
             if (m_interTrialImageIndex == 0) {
                 // if it's the first image, show the blank buffer screen next
                 m_interTrialImageIndex++;
@@ -246,7 +247,7 @@ void App::update() {
         }
         if(m_config.trials[m_trialIndex].flickerIndex == m_interTrialImageIndex) { // flicker only if this is the flicker index
             if (now - m_flickerLast >= m_flickerInterval) {
-                std::cout << "flicker time: " << (now - m_flickerLast) << " seconds \n";
+                //std::cout << "flicker time: " << (now - m_flickerLast) << " seconds \n";
                 m_flickerLast = now;
                 m_flickerShow = !m_flickerShow;
             }
@@ -270,8 +271,13 @@ void App::advancePhase() {
     m_phaseStart = glfwGetTime();
     m_responseStart = m_phaseStart;
 
-    //if ((m_trialIndex + 1) < (int)m_config.trials.size())
-    //    loadTexturesForTrial(m_config.trials[m_trialIndex + 1]);
+    // while waiting for response, begin loading/processing images on a different thread 
+    if (m_decodeThread.joinable())
+        m_decodeThread.join();
+
+    if ((m_trialIndex + 1) < (int)m_config.trials.size()) {
+        m_decodeThread = std::thread(&App::decodeImagesForTrial, this, m_config.trials[m_trialIndex + 1]);
+    }
 }
 
 
@@ -303,6 +309,9 @@ void App::showNextImageInTrial() {
     }
 }
 
+
+
+
 /// <summary>
 /// Records user's response in CSV file
 /// </summary>
@@ -311,27 +320,25 @@ void App::recordResponse(int key) {
     // only record response if currently waiting for response, or doing side by side image view
     if (m_phase != TrialPhase::ShowSideBySideImages && m_phase != TrialPhase::WaitForResponse)
         return;
-   
-    // while waiting for response, begin loading/processing images on a different thread 
-    if (m_decodeThread.joinable())
-        m_decodeThread.join();
-
-    if ((m_trialIndex + 1) < (int)m_config.trials.size()) {
-        m_decodeThread = std::thread(&App::decodeImagesForTrial, this,
-            m_config.trials[m_trialIndex + 1]);
-    }
-
-    //// moved trial load here to stop showing image at end (blocking load textures call caused image view to hang)
-    //if ((m_trialIndex + 1) < (int)m_config.trials.size())
-    //    loadTexturesForTrial(m_config.trials[m_trialIndex + 1]);
 
     TrialResult result;
+
+    // not sure if reaction time is needed
+    if (m_config.intervalMode == 0) { // 2 interval mode - start counting reaction tiome from response start
+        result.reactionTimeMS = (glfwGetTime() - m_responseStart) * 1000; // get time in ms
+
+    }
+    else { // single interval mode - start counting reaction time from image shown
+        result.reactionTimeMS = (glfwGetTime() - m_phaseStart) * 1000; // get time in ms
+    }
+
     result.imageName = m_config.trials[m_trialIndex].name;
     result.codec = m_config.trials[m_trialIndex].codec;
     result.positionX_L = m_config.trials[m_trialIndex].fixationCoords.Left.X;
     result.positionY_L = m_config.trials[m_trialIndex].fixationCoords.Left.Y;
     result.positionX_R = m_config.trials[m_trialIndex].fixationCoords.Right.X;
     result.positionY_R = m_config.trials[m_trialIndex].fixationCoords.Right.Y;
+    result.foveatLevel = m_config.trials[m_trialIndex].foveatLevel;
 
     // translate viewing mode into name data
     switch (m_config.trials[m_trialIndex].viewingMode) {
@@ -358,23 +365,20 @@ void App::recordResponse(int key) {
     // play sound based on if response is correct or incorrect
     //result.response == result.actual ? PlaySound(TEXT("./assets/sounds/Success.wav"), NULL, SND_FILENAME | SND_ASYNC) : PlaySound(TEXT("./assets/sounds/error.wav"), NULL, SND_FILENAME | SND_ASYNC);
 
-    if (result.response != result.actual) { // changed to only play on incorrect
-        PlaySound(TEXT("./assets/sounds/error.wav"), NULL, SND_FILENAME | SND_ASYNC);
+    if (result.response != result.actual) { // only play on incorrect
+        const auto soundPath = Utils::getExecutableDirectory() / "assets" / "sounds" / "error.wav";
+
+        PlaySound( soundPath.c_str(), NULL, SND_FILENAME | SND_ASYNC );
     }
         
-    // not sure if reaction time is needed
-    if (m_config.intervalMode == 0) { // 2 interval mode - start counting reaction tiome from response start
-        result.reactionTimeMS = (glfwGetTime() - m_responseStart) * 1000; // get time in ms
-
-    }else{ // single interval mode - start counting reaction time from image shown
-        result.reactionTimeMS = (glfwGetTime() - m_phaseStart) * 1000; // get time in ms
-    }
+    
     
     m_results.push_back(result);
 
     m_csv.writeRow(
         {
         result.codec,
+        result.foveatLevel,
         result.imageName,
         std::to_string(result.actual),
         std::to_string(result.positionX_L),
@@ -387,8 +391,12 @@ void App::recordResponse(int key) {
         m_config.experimentInfo.participantID
     });
 
-    if (m_decodeThread.joinable())
+    if (m_decodeThread.joinable()) {
         m_decodeThread.join();
+        uploadDecodedTextures(); // after joining, all images are decoded. so we can upload them to the gpu now
+
+    }
+        
 
     m_trialIndex++;
 
@@ -428,8 +436,9 @@ void App::pollGamepad() {
     if (!glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) return;
 
     const bool aPressed = state.buttons[GLFW_GAMEPAD_BUTTON_A];
-    const bool leftPressed = state.buttons[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER]; // changed to L and R trigger instead of X and B
-    const bool rightPressed = state.buttons[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER];
+    const bool leftPressed =  state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] > 0.5f;
+
+    const bool rightPressed = state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] > 0.5f;
 
     if (aPressed && !m_prevGamepadA && m_phase == TrialPhase::StartInstructions)
         initGame();
@@ -443,27 +452,32 @@ void App::pollGamepad() {
 }
 
 // loading textures
-
-
 // hardcoded to load textures for instructions. these are loaded in once per program's lifecycle
 
 /// <summary>
 /// Loads the instructions textures (starting screen, waiting for response). 
 /// These are loaded once per program lifecycle, and are kept as unchanging textures throughout.
 /// </summary>
-void App::loadInstructionsTextures() {
-    if (m_config.intervalMode == 0) { // 2 interval mode, load "first or second image?" for response
-        m_renderer.decodeAndUploadTexture(TEX_WAIT_L, "./assets/instructions/responsescreen0_L.ppm");
-        m_renderer.decodeAndUploadTexture(TEX_WAIT_R, "./assets/instructions/responsescreen0_R.ppm");
+void App::loadInstructionsTextures()
+{
+    const auto assetsDir = Utils::getExecutableDirectory() / "assets" / "instructions";
+
+    if (m_config.intervalMode == 0) { // 2 interval mode
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_L, (assetsDir / "responsescreen0_L.ppm").string());
+
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_R,(assetsDir / "responsescreen0_R.ppm").string());
     }
-    else { // single interval mode, load "left or right image?" for response 
-        m_renderer.decodeAndUploadTexture(TEX_WAIT_L, "./assets/instructions/responsescreen1_L.ppm");
-        m_renderer.decodeAndUploadTexture(TEX_WAIT_R, "./assets/instructions/responsescreen1_R.ppm");
+    else { // single interval mode
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_L,(assetsDir / "responsescreen1_L.ppm").string());
+
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_R, (assetsDir / "responsescreen1_R.ppm").string());
     }
 
-    m_renderer.decodeAndUploadTexture(TEX_START_L, "./assets/instructions/startscreen_L.ppm");
-    m_renderer.decodeAndUploadTexture(TEX_START_R, "./assets/instructions/startscreen_R.ppm");
+    m_renderer.decodeAndUploadTexture(TEX_START_L, (assetsDir / "startscreen_L.ppm").string());
+
+    m_renderer.decodeAndUploadTexture(TEX_START_R,(assetsDir / "startscreen_R.ppm").string());
 }
+
 
 /// <summary>
 /// // load the textures for the current trial based on the viewing mode. these are loaded every time the trial is switched.
@@ -531,8 +545,16 @@ void App::decodeImagesForTrial(const ImagePaths& img) {
 void App::decodeImageForUpload(TextureSlot slot, const std::string& path) {
     m_renderer.decodeImageForUpload(slot, path);
 }
+
 void App::uploadDecodedTexture(TextureSlot slot) {
     m_renderer.uploadDecodedTexture(slot);
+}
+
+void App::uploadDecodedTextures() {
+    uploadDecodedTexture(TEX_ORIG_L);
+    uploadDecodedTexture(TEX_ORIG_R);
+    uploadDecodedTexture(TEX_DEC_L);
+    uploadDecodedTexture(TEX_DEC_R);
 }
 
 // GLFW callbacks

@@ -12,6 +12,7 @@ struct ImagePaths {
     FixationCoordinates fixationCoords = FixationCoordinates();
     std::string name;
     std::string codec = "N/a"; // NULL FOR NOW::: e.g. "fraunhofer_b", "dsc" -- determines which subfolder under condImageDirectory holds L_dec/R_dec
+    std::string foveatLevel = "N/a";
     fs::path L_orig; // <name>_L_orig.<ext>
     fs::path L_dec; // <name>_L_dec.<ext>
     fs::path R_orig; // <name>_R_orig.<ext>
@@ -23,6 +24,7 @@ struct ImagePaths {
 struct ExperimentInformation {
     std::string experimentName;
     std::string participantID;
+    int block;
     int participantAge;
     char participantGender; 
     int groupNumber;

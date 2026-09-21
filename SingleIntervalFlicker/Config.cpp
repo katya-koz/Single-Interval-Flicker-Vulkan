@@ -90,15 +90,16 @@ bool Config::loadExperimentInfo(const std::string& inputPath) {
 
     // expected header:
      /*
-     # ============================================================                              1
-     # Experiment: VESA foveation assessement                                                    2
-     # Subject ID: Test                                                                          3
-     # Subject Age: 20                                                                           4
-     # Subject Gender: m/f                                                                       5
-     # Group: 1                                                                                  6
-     # Session: 1                                                                                7
-     # ============================================================                              8
-     imageName,Left0,Right0,Left1,Right1, posX_L, posY_L, posX_R, posY_R, order                  9
+     # ============================================================                                                                        1
+     # Experiment: VESA foveation assessement                                                                                              2
+     # Subject ID: Test                                                                                                                    3
+     # Subject Age: 20                                                                                                                     4
+     # Subject Gender: m/f                                                                                                                 5
+     # Group: 1                                                                                                                            6
+     # Session: 1                                                                                                                          7
+     # Block: 1                                                                                                                            8
+     # ============================================================                                                                        9
+     codec,imageName, foveatLevels, leftImage0,rightImage0,leftImage1,rightImage1, posX_L, posY_L, posX_R, posY_R, order                   10
      ....
      */
 
@@ -158,6 +159,9 @@ bool Config::loadExperimentInfo(const std::string& inputPath) {
         else if (key == "Session") {
             experimentInfo.sessionNumber = std::stoi(value);
         }
+        else if (key == "Block") {
+            experimentInfo.block = std::stoi(value);
+        }
     }
 
     return true;
@@ -175,7 +179,7 @@ bool Config::loadTrials(const std::string& inputPath) {
     int lineNumber = 1;
     while (std::getline(file, line)) {
         ++lineNumber;
-        if (trim(line).empty() || lineNumber <= 10) continue; // skip the header block
+        if (trim(line).empty() || lineNumber <= 11) continue; // skip the header block
 
         std::vector<std::string> fields = splitCSVLine(line);
         if (fields.size() < 10) { // ensure all header columns are present
@@ -194,19 +198,20 @@ bool Config::loadTrials(const std::string& inputPath) {
 ImagePaths Config::parseImageRow(std::vector<std::string> fields) {
     ImagePaths imagePaths;
 
-    imagePaths.name = fields[0];
+    imagePaths.name = fields[1];
+    imagePaths.codec = fields[0];
+    imagePaths.foveatLevel = fields[2];
+    imagePaths.L_orig = rootImageDirectory / fields[2] / fields[3];
+    imagePaths.R_orig = rootImageDirectory / fields[2] / fields[4];
+    imagePaths.L_dec = rootImageDirectory / fields[2] / fields[5];
+    imagePaths.R_dec = rootImageDirectory / fields[2] / fields[6];
 
-    imagePaths.L_orig = rootImageDirectory / fields[1];
-    imagePaths.R_orig = rootImageDirectory / fields[2];
-    imagePaths.L_dec = rootImageDirectory / fields[3];
-    imagePaths.R_dec = rootImageDirectory / fields[4];
+    imagePaths.fixationCoords.Left.X = std::stoi(fields[7]);
+    imagePaths.fixationCoords.Left.Y = std::stoi(fields[8]);
+    imagePaths.fixationCoords.Right.X = std::stoi(fields[9]);
+    imagePaths.fixationCoords.Right.Y = std::stoi(fields[10]);
 
-    imagePaths.fixationCoords.Left.X = std::stoi(fields[5]);
-    imagePaths.fixationCoords.Left.Y = std::stoi(fields[6]);
-    imagePaths.fixationCoords.Right.X = std::stoi(fields[7]);
-    imagePaths.fixationCoords.Right.Y = std::stoi(fields[8]);
-
-    imagePaths.flickerIndex = std::stoi(fields[9]);
+    imagePaths.flickerIndex = std::stoi(fields[11]);
 
     // validate all four image paths
     if (!fs::exists(imagePaths.L_orig)) {

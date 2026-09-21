@@ -25,6 +25,7 @@ enum class TrialPhase {
 
 struct TrialResult {
     std::string codec;
+    std::string foveatLevel;
     std::string imageName;
     int actual;
     int positionX_L;
@@ -70,6 +71,7 @@ private:
     void decodeImagesForTrial(const ImagePaths& img);
     void decodeImageForUpload(TextureSlot slot, const std::string& path);
     void uploadDecodedTexture(TextureSlot slot);
+    void uploadDecodedTextures();
     // glfw callbacks
     static void keyCallback(GLFWwindow*, int, int, int, int);
     static void framebufferSizeCallback(GLFWwindow*, int, int) {} // unused

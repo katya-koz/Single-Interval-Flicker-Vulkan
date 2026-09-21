@@ -11,13 +11,13 @@ CSV::~CSV() {
 }
 
 bool CSV::init(const std::string& participantId, const int participantAge,
-    const char participantGender, /*const int blockNumber,*/ const int sessionNumber,
+    const char participantGender, const int blockNumber,const int sessionNumber,
     const int groupNumber,/*const int intervalMode, const int displayMode,*/
     const std::vector<std::string>& headers, const std::string& outputDirectory ="") {
     
-    fs::path outPath = buildPath(participantId, /*blockNumber,*/ sessionNumber, groupNumber, outputDirectory);
+    fs::path outPath = buildPath(participantId, blockNumber, sessionNumber, groupNumber, outputDirectory);
 
-    m_file.open(outPath);
+    m_file.open(outPath, std::ios::out | std::ios::trunc); // overwrite existing file of same name
     if (!m_file.is_open()) {
         Utils::FatalError("[CSV] Failed to open file: " + outPath.string());
         return false;
@@ -29,6 +29,7 @@ bool CSV::init(const std::string& participantId, const int participantAge,
     // metadata
     m_file << "# Age: " << participantAge << "\n";
     m_file << "# Gender: " << participantGender << "\n";
+    m_file << "# Timestamp: " << getDateTimeString() << "\n";
    
 
     // column headers
@@ -63,31 +64,24 @@ void CSV::close() {
     if (m_file.is_open()) m_file.close();
 }
 
-fs::path CSV::buildPath(const std::string& participantId, /* const int blockNumber,*/ const int sessionNumber,
-    const int groupNumber, const std::string& outputDir) const {
+fs::path CSV::buildPath(const std::string& participantId, const int blockNumber, const int sessionNumber,const int groupNumber, const std::string& outputDir) const {
+
     fs::path dir = outputDir.empty() ? fs::current_path() : fs::path(outputDir);
 
-    // create the directory if it doesn't exist
     if (!fs::exists(dir)) {
         fs::create_directories(dir);
     }
 
+    std::string base = 
+        "G" + std::to_string(groupNumber) + "_" +
+        participantId + "_" +
+        "S" + std::to_string(sessionNumber) + "_" +
+        "B" + std::to_string(blockNumber) +
+        ".csv";
 
-    std::string base = "G" + std::to_string(groupNumber) + "_" + participantId + "_" + "S" + std::to_string(sessionNumber) + "_" + getDateTimeString() + ".csv"; // base for counting block numbers
-
-     
-
-    //int blockNumberCounter = 1;
-    fs::path outPath;
-
-    do {
-        //outPath = dir / (base + "_" + "B" + std::to_string(blockNumberCounter) + "_" + getDateTimeString() + ".csv");
-        outPath = dir / base;
-        //blockNumberCounter++;
-    } while (fs::exists(outPath));
-
-    return outPath;
+    return dir / base;
 }
+
 // not currently needed
 //std::string CSV::getDateString() const {
 //    auto now = std::chrono::system_clock::now();
