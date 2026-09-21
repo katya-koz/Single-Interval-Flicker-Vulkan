@@ -21,6 +21,9 @@ public:
     std::vector<TobiiResearchGazeData> getSamples();
 
     void clearSamples();
+    bool enterCalibration(TobiiResearchEyeTracker* eyetracker);
+    bool collectCalibrationPoint(TobiiResearchEyeTracker* eyetracker, float x, float y);
+    bool finishCalibration(TobiiResearchEyeTracker* eyetracker);
 
     #ifdef DEBUG_MOUSE_GAZE
         void updateMouseGaze(GLFWwindow* window, int monitorWidth);
@@ -31,6 +34,7 @@ private:
         TobiiResearchGazeData* gaze_data,
         void* user_data
     );
+   
 
     std::mutex m_mutex;
     std::vector<TobiiResearchGazeData> m_samples;

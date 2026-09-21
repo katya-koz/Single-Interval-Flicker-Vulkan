@@ -3,10 +3,9 @@
 #include "tobii_research_eyetracker.h"
 #include "tobii_research_streams.h"
 #include "tobii_research.h"
+#include "tobii_research_calibration.h"
 
-void EyeTracker::gaze_data_callback(
-    TobiiResearchGazeData* gaze_data,
-    void* user_data)
+void EyeTracker::gaze_data_callback( TobiiResearchGazeData* gaze_data, void* user_data)
 {
     auto* eyeTracker = static_cast<EyeTracker*>(user_data);
 
@@ -61,6 +60,38 @@ void EyeTracker::clearSamples()
     std::lock_guard<std::mutex> lock(m_mutex);
 
     m_samples.clear();
+}
+
+bool EyeTracker::enterCalibration(TobiiResearchEyeTracker* eyetracker)
+{
+    return tobii_research_screen_based_calibration_enter_calibration_mode(eyetracker) == TOBII_RESEARCH_STATUS_OK;
+}
+
+bool EyeTracker::collectCalibrationPoint(TobiiResearchEyeTracker* eyetracker, float x, float y)
+{
+    TobiiResearchStatus status = tobii_research_screen_based_calibration_collect_data(eyetracker, x, y);
+    if (status != TOBII_RESEARCH_STATUS_OK)
+        status = tobii_research_screen_based_calibration_collect_data(eyetracker, x, y); // one retry, per Tobii's own example
+
+    return status == TOBII_RESEARCH_STATUS_OK;
+}
+
+bool EyeTracker::finishCalibration(TobiiResearchEyeTracker* eyetracker)
+{
+    TobiiResearchCalibrationResult* result = nullptr;
+    TobiiResearchStatus status = tobii_research_screen_based_calibration_compute_and_apply(eyetracker, &result);
+
+    bool success = (status == TOBII_RESEARCH_STATUS_OK && result && result->status == TOBII_RESEARCH_CALIBRATION_SUCCESS);
+
+    if (result) {
+        // result->calibration_points[i].calibration_samples[s].left_eye/right_eye.validity
+        // tells you whether that sample was usable per-eye, if you want to flag/redo weak points
+        // instead of trusting compute_and_apply's overall status blindly.
+        tobii_research_free_screen_based_calibration_result(result);
+    }
+
+    tobii_research_screen_based_calibration_leave_calibration_mode(eyetracker);
+    return success;
 }
 
 #ifdef DEBUG_MOUSE_GAZE

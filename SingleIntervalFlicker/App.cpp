@@ -3,14 +3,14 @@
 #include <Windows.h>
 #include <mmsystem.h>
 #include "render.h" 
+#include "tobii_research.h" // tobii_research_find_all_eyetrackers / tobii_research_free_eyetrackers
+#include <algorithm>         // std::min
 #include <chrono>
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
 #include <thread>
 #pragma comment(lib, "winmm.lib")
-
-
 
 /// <summary>
 /// Handles the app's lifecycle
@@ -63,9 +63,9 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
 
     m_window = glfwCreateWindow(
         m_monitorWidth * 2, // instead of dealing with two windows, use 1 window stretched to fit 2 monitors. ( this is so i dont have to deal with switching contexts all the time)
-        m_monitorHeight, 
-        "Flicker Experiment", 
-        nullptr, 
+        m_monitorHeight,
+        "Flicker Experiment",
+        nullptr,
         nullptr
     );
     glfwSetWindowUserPointer(m_window, this);
@@ -93,35 +93,67 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
         m_config.experimentInfo.groupNumber,
         //m_config.intervalMode,  dont need for now
         //m_config.displayMode, dont need for now
-            { 
-                "Codec",
-                "Foveation",
-                "Image", 
-                "Interval", 
-                "Position-X (Left)", 
-                "Position-Y (Left)",
-                "Position-X (Right)",
-                "Position-Y (Right)",
-                "Mode",
-                "Response",
-                "Duration",
-                "Subject",
-                "Mean Gaze X (Left)",
-                "Mean Gaze Y (Left)",
-                "Mean Gaze X (Right)",
-                "Mean Gaze Y (Right)",
-                "Std. Dev. Gaze X (Left)",
-                "Std. Dev. Gaze Y (Left)",
-                "Std. Dev. Gaze X (Right)",
-                "Std. Dev. Gaze Y (Right)",
-            },
+        {
+            "Codec",
+            "Foveation",
+            "Image",
+            "Interval",
+            "Position-X (Left)",
+            "Position-Y (Left)",
+            "Position-X (Right)",
+            "Position-Y (Right)",
+            "Mode",
+            "Response",
+            "Duration",
+            "Subject",
+            "Mean Gaze X (Left)",
+            "Mean Gaze Y (Left)",
+            "Mean Gaze X (Right)",
+            "Mean Gaze Y (Right)",
+            "Std. Dev. Gaze X (Left)",
+            "Std. Dev. Gaze Y (Left)",
+            "Std. Dev. Gaze X (Right)",
+            "Std. Dev. Gaze Y (Right)",
+        },
         m_config.outputDirectory.string());
 
-    m_phase = TrialPhase::StartInstructions;
-    m_phaseStart = glfwGetTime();
-    return true;
-}
 
+    #ifdef DEBUG_MOUSE_GAZE
+        // Debug builds don't touch the Tobii SDK at all: the mouse cursor stands in for
+        // gaze (App::run() calls m_eyetracker.updateMouseGaze() every frame), and there's
+        // no physical device to calibrate, so skip straight to the start screen.
+        m_phase = TrialPhase::StartInstructions;
+        m_phaseStart = glfwGetTime();
+        return true;
+    #else
+        // *************** find and connect to the eye tracker **********************
+        TobiiResearchEyeTrackers* eyetrackers = nullptr;
+        TobiiResearchStatus findStatus = tobii_research_find_all_eyetrackers(&eyetrackers);
+
+        if (findStatus != TOBII_RESEARCH_STATUS_OK || !eyetrackers || eyetrackers->count == 0) {
+            Utils::FatalError("[App] No Tobii eye tracker found.");
+            return false;
+        }
+
+        m_tobiiHandle = eyetrackers->eyetrackers[0]; // handle stays valid after the list itself is freed
+        tobii_research_free_eyetrackers(eyetrackers);
+
+        m_eyetracker.start(m_tobiiHandle); // subscribe to gaze data
+
+        // *************** calibration **********************
+        if (!m_eyetracker.enterCalibration(m_tobiiHandle)) {
+            Utils::FatalError("[App] Failed to enter calibration mode.");
+            return false;
+        }
+
+        m_calibrationIndex = 0;
+        m_calibrationStage = CalibrationStage::ShowTarget;
+
+        m_phase = TrialPhase::Calibration;
+        m_phaseStart = glfwGetTime();
+        return true;
+    #endif
+}
 
 /// <summary>
 /// Main loop, also controls FPS.
@@ -134,9 +166,9 @@ void App::run() {
     while (!glfwWindowShouldClose(m_window) && m_phase != TrialPhase::Done) {
         glfwPollEvents();
         update();
-        #ifdef DEBUG_MOUSE_GAZE
-             m_eyetracker.updateMouseGaze(m_window, m_monitorWidth);
-        #endif
+#ifdef DEBUG_MOUSE_GAZE
+        m_eyetracker.updateMouseGaze(m_window, m_monitorWidth);
+#endif
         m_renderer.drawFrame(buildScene()); // draws the scene
     }
 }
@@ -179,6 +211,18 @@ FrameScene App::buildScene() const {
         s.flickerShow = m_flickerShow;
         break;
     }
+
+    case TrialPhase::Calibration:
+    {
+        const double elapsed = glfwGetTime() - m_phaseStart; // buildScene() is called separately from update(), so this needs its own elapsed
+        s.mode = FrameScene::Mode::Calibration;
+        s.calibrationTarget = m_calibrationPoints[m_calibrationIndex];
+        s.calibrationProgress =
+            static_cast<float>(
+                (std::min)(1.0, elapsed / CALIBRATION_SETTLE_TIME)
+                );        
+        break;
+    }
     case TrialPhase::ShowBuffer:
     {
         s.mode = FrameScene::Mode::ShowBuffer;
@@ -217,7 +261,7 @@ void App::initGame() {
     m_flickerLast = m_phaseStart;
     m_flickerShow = false;
 
-    
+
 }
 
 /// <summary>
@@ -232,7 +276,7 @@ void App::update() {
             advancePhase();
             return;
         }
-        
+
         if (now - m_flickerLast >= m_flickerInterval) {
             m_flickerLast = now;
             m_flickerShow = !m_flickerShow;
@@ -248,7 +292,7 @@ void App::update() {
                 // if it's the first image, show the blank buffer screen next
                 m_interTrialImageIndex++;
                 showBuffer();
-                
+
             }
             else {
                 // second image, advance trial and collect response
@@ -256,9 +300,9 @@ void App::update() {
                 advancePhase();
             }
             return;
-            
+
         }
-        if(m_config.trials[m_trialIndex].flickerIndex == m_interTrialImageIndex) { // flicker only if this is the flicker index
+        if (m_config.trials[m_trialIndex].flickerIndex == m_interTrialImageIndex) { // flicker only if this is the flicker index
             if (now - m_flickerLast >= m_flickerInterval) {
                 //std::cout << "flicker time: " << (now - m_flickerLast) << " seconds \n";
                 m_flickerLast = now;
@@ -273,6 +317,25 @@ void App::update() {
     else if (m_phase == TrialPhase::ShowBuffer) {
         if (elapsed >= waitTimeoutDuration) {
             showNextImageInTrial();
+        }
+    }
+    else if (m_phase == TrialPhase::Calibration) {
+        if (elapsed >= CALIBRATION_SETTLE_TIME && m_calibrationStage == CalibrationStage::ShowTarget) {
+            m_calibrationStage = CalibrationStage::Collecting;
+        }
+        else if (m_calibrationStage == CalibrationStage::Collecting) {
+            const auto& pt = m_calibrationPoints[m_calibrationIndex];
+            m_eyetracker.collectCalibrationPoint(m_tobiiHandle, pt.x, pt.y); // brief blocking call - fine at this cadence
+
+            if (++m_calibrationIndex >= m_calibrationPoints.size()) {
+                bool ok = m_eyetracker.finishCalibration(m_tobiiHandle);
+                // TODO: if (!ok), consider re-running just the weak points instead of bailing straight to trials
+                m_phase = TrialPhase::StartInstructions;
+            }
+            else {
+                m_calibrationStage = CalibrationStage::ShowTarget;
+            }
+            m_phaseStart = glfwGetTime();
         }
     }
 
@@ -372,8 +435,8 @@ void App::recordResponse(int key) {
     else {
         result.response = (key == GLFW_KEY_LEFT) ? 0 : 1;
     }
-    
-    
+
+
     result.actual = m_config.trials[m_trialIndex].flickerIndex;
 
     // play sound based on if response is correct or incorrect
@@ -382,9 +445,9 @@ void App::recordResponse(int key) {
     if (result.response != result.actual) { // only play on incorrect
         const auto soundPath = Utils::getExecutableDirectory() / "assets" / "sounds" / "error.wav";
 
-        PlaySound( soundPath.c_str(), NULL, SND_FILENAME | SND_ASYNC );
+        PlaySound(soundPath.c_str(), NULL, SND_FILENAME | SND_ASYNC);
     }
-        
+
     m_results.push_back(result);
 
     // calculate eye tracking statistics
@@ -428,7 +491,7 @@ void App::recordResponse(int key) {
         uploadDecodedTextures(); // after joining, all images are decoded. so we can upload them to the gpu now
 
     }
-        
+
 
     m_trialIndex++;
 
@@ -457,7 +520,7 @@ void App::recordResponse(int key) {
     m_responseStart = m_phaseStart;
     m_flickerShow = false;
     m_flickerLast = m_phaseStart;
-    
+
 }
 
 /// <summary>
@@ -468,7 +531,7 @@ void App::pollGamepad() {
     if (!glfwGetGamepadState(GLFW_JOYSTICK_1, &state)) return;
 
     const bool aPressed = state.buttons[GLFW_GAMEPAD_BUTTON_A];
-    const bool leftPressed =  state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] > 0.5f;
+    const bool leftPressed = state.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] > 0.5f;
 
     const bool rightPressed = state.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] > 0.5f;
 
@@ -497,17 +560,17 @@ void App::loadInstructionsTextures()
     if (m_config.intervalMode == 0) { // 2 interval mode
         m_renderer.decodeAndUploadTexture(TEX_WAIT_L, (assetsDir / "responsescreen0_L.ppm").string());
 
-        m_renderer.decodeAndUploadTexture(TEX_WAIT_R,(assetsDir / "responsescreen0_R.ppm").string());
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_R, (assetsDir / "responsescreen0_R.ppm").string());
     }
     else { // single interval mode
-        m_renderer.decodeAndUploadTexture(TEX_WAIT_L,(assetsDir / "responsescreen1_L.ppm").string());
+        m_renderer.decodeAndUploadTexture(TEX_WAIT_L, (assetsDir / "responsescreen1_L.ppm").string());
 
         m_renderer.decodeAndUploadTexture(TEX_WAIT_R, (assetsDir / "responsescreen1_R.ppm").string());
     }
 
     m_renderer.decodeAndUploadTexture(TEX_START_L, (assetsDir / "startscreen_L.ppm").string());
 
-    m_renderer.decodeAndUploadTexture(TEX_START_R,(assetsDir / "startscreen_R.ppm").string());
+    m_renderer.decodeAndUploadTexture(TEX_START_R, (assetsDir / "startscreen_R.ppm").string());
 }
 
 

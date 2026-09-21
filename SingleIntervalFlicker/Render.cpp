@@ -583,6 +583,46 @@ void Renderer::renderFixationPoint(
 
     drawCross(m_monitorWidth, fixationCoords.Right, m_textures[TEX_ORIG_R]);
 }
+void Renderer::renderCalibrationTarget(VkCommandBuffer cmd, TobiiResearchNormalizedPoint2D target, float progress, int monitorWidth, int monitorHeight)
+{
+    const float ndcX = 2.0f * target.x - 1.0f;
+    const float ndcY = 1.0f - 2.0f * target.y;
+    const float radiusPx = 24.0f * (1.0f - 0.6f * progress); // shrinks as the settle window closes
+    auto setViewport = [&](int xOff)
+        {
+            VkViewport vp{};
+            vp.x = static_cast<float>(xOff);
+            vp.y = 0.0f;
+            vp.width = static_cast<float>(m_monitorWidth);
+            vp.height = static_cast<float>(m_monitorHeight);
+            vp.minDepth = 0.0f;
+            vp.maxDepth = 1.0f;
+
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+
+            VkRect2D scissor{};
+            scissor.offset = { xOff, 0 };
+            scissor.extent = {
+                static_cast<uint32_t>(m_monitorWidth),
+                static_cast<uint32_t>(m_monitorHeight)
+            };
+
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+        };
+    auto drawTarget = [&](int xOff) {
+        setViewport(xOff); // reuse the same per-monitor viewport/scissor lambda as renderFixationPoint
+        FixationPointPushConstants pc{};
+        pc.centerX = ndcX;
+        pc.centerY = ndcY;
+        pc.halfSizeX = radiusPx / static_cast<float>(monitorWidth);
+        pc.halfSizeY = radiusPx / static_cast<float>(monitorHeight);
+        vkCmdPushConstants(cmd, m_fixationPointLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        };
+
+    drawTarget(0);
+    drawTarget(monitorWidth);
+}
 
 DecodedImage Renderer::decodeImageForUpload(TextureSlot slot, const std::string& path) {
 
@@ -667,72 +707,6 @@ void Renderer::decodeAndUploadTexture(TextureSlot slot, const std::string& path)
     uploadDecodedTexture(slot);  // now waits for GPU idle internally
 }
 
-
-
-/// <summary>
-/// Loads images from the disk. Handles PPM images. 
-/// </summary>
-/// <param name="slot">Texture slot to be loaded in</param>
-/// <param name="path">Image path</param>
-//void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
-//    // wait for the gpu to finish before updating any texture slots.
-//    vkDeviceWaitIdle(m_device);
-//
-//    // read the PPM max value from the ppm header to determine whether image is HDR
-//    double ppmMax = 255.0;
-//    {
-//        std::ifstream f(path, std::ios::binary);
-//        if (f.is_open()) {
-//            std::string magic;
-//            f >> magic;
-//            while (f.peek() == '\n') f.get();
-//            while (f.peek() == '#') f.ignore(4096, '\n');
-//            std::string w, h, maxval;
-//            f >> w >> h >> maxval;
-//            ppmMax = std::stod(maxval);
-//        }
-//    }
-//
-//    // load pixels in with openCV
-//    cv::Mat src = cv::imread(path, cv::IMREAD_ANYDEPTH | cv::IMREAD_COLOR);
-//    
-//    if (src.empty()) throw std::runtime_error("[Renderer] Failed to load image: " + path);
-//
-//    const bool isHDR = (ppmMax > 255.0); // hdr > 8 bit
-//
-//    // convert to linear rgb values
-//    cv::Mat img;
-//    src.convertTo(img, CV_32F, 1.0 / ppmMax); // normalize to [0,1]
-//    cv::cvtColor(img, img, cv::COLOR_BGR2RGB); // openCV uses BGR, and vulkan expects RGB
-//    cv::flip(img, img, -1); // images need to be mirrored (stereoscopic mirror setup), and for some reason they're loaded in upside down, so need to flip on x axis as well to correct for that.
-//    if (!img.isContinuous()) img = img.clone();
-//
-//    // choose vulkan format and pack
-//    VkFormat fmt;
-//    cv::Mat  upload;
-//
-//    if (isHDR && m_isHDR) {
-//        cv::Mat rgba;
-//        cv::cvtColor(img, rgba, cv::COLOR_RGB2RGBA);
-//        rgba.convertTo(upload, CV_16F);
-//        fmt = VK_FORMAT_R16G16B16A16_SFLOAT; // HDR format, 16 b half floats for RGB values
-//    }
-//    else { // non hdr format
-//        cv::Mat rgba;
-//        cv::cvtColor(img, rgba, cv::COLOR_RGB2RGBA);
-//        rgba.convertTo(upload, CV_8U, 255.0); // 8 bit - rescale back from [0,1] to [0,255]
-//        fmt = VK_FORMAT_R8G8B8A8_SRGB;
-//    }
-//
-//    if (!upload.isContinuous()) upload = upload.clone();
-//
-//    Texture& tex = m_textures[slot];
-//    destroyTexture(tex);
-//    tex.width = upload.cols;
-//    tex.height = upload.rows;
-//    uploadTextureData(tex, upload.data, fmt, upload.cols, upload.rows);
-//    updateDescriptorSet(slot, tex);
-//}
 
 
 /// <summary>

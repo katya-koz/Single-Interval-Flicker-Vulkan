@@ -45,6 +45,14 @@ struct FixationCoordinates {
     Coords Right = Coords();
 };
 
+// Normalized [0,1] screen-space point (0,0 = top-left, 1,1 = bottom-right).
+// Used for the calibration target so this shared header doesn't need to
+// depend on TobiiResearchNormalizedPoint2D / the Tobii SDK headers.
+struct NormalizedPoint2D {
+    float x = 0.5f;
+    float y = 0.5f;
+};
+
 // What App asks the renderer to put on screen this frame.
 // The renderer translates this into Vulkan draw calls.
 struct FrameScene {
@@ -56,6 +64,7 @@ struct FrameScene {
         WaitForResponse,           // TEX_WAIT_L / TEX_WAIT_R
         ShowBuffer,                // Show the buffer grey screen between images within same trial
         Blank                      // clear to black, fixationPoint only
+        ,Calibration
     };
 
     Mode mode = Mode::Blank;
@@ -71,6 +80,8 @@ struct FrameScene {
     bool drawFixationPoint = true;
 
     FixationCoordinates fixationPointCoords = FixationCoordinates();
-    
-};
 
+    // Only used when mode == Calibration:
+    NormalizedPoint2D calibrationTarget = NormalizedPoint2D();  // where to draw the target dot, normalized [0,1]
+    float calibrationProgress = 0.0f;                           // 0..1, e.g. drives a shrinking/filling animation before a sample is taken
+};
