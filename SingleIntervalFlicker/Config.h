@@ -39,7 +39,8 @@ struct Config {
     fs::path outputDirectory = "C://flickerTestOutput"; // where the results csv is output
     int intervalMode = 1; // 0 = two interval; 1 = single interval (two images, side by side)
     int displayMode = 1; // 0 = SDR only ; 1 = HDR preferred
-
+    float gazePrecisionDegrees = 1.0;
+    float viewingDistanceCm = 60.0;
     ExperimentInformation experimentInfo = ExperimentInformation();
 
     // defaults

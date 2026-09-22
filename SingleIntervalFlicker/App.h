@@ -108,7 +108,7 @@ private:
     Renderer m_renderer; // backend renderer
     Config m_config;
     int m_trialIndex = 0;
-
+    int m_physicalMonitorWidth, m_physicalMonitorHeight;
     // used when in two interval mode. tracks whether 
     // the first or second image within a trial has been shown. 0 or 1
     int m_interTrialImageIndex = 0;

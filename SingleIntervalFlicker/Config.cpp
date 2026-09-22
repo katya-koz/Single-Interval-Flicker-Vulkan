@@ -66,9 +66,12 @@ bool Config::loadConfig(const std::string& configPath) {
     if (j.contains("Image Time (s)")) {
         imageTime = j["Image Time (s)"].get<double>();
     }
-    //if (j.contains("Target FPS")) {
-    //    targetFPS = j["Target FPS"].get<int>();
-    //}
+    if (j.contains("Gaze Precision (degrees)")) {
+        gazePrecisionDegrees = j["Gaze Precision (degrees)"].get<float>();
+    }
+    if (j.contains("Viewing Distance (cm)")) {
+        viewingDistanceCm = j["Viewing Distance (cm)"].get<float>();
+    }
     if (j.contains("Display Mode")) {
         displayMode = j["Display Mode"].get<int>();
     }

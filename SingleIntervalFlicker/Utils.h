@@ -6,10 +6,10 @@
 #include "app.h"
 #include <filesystem>
 #include "tobii_research_streams.h"
-
-#include <vector>
 #include <cmath>
-
+#include <vector>
+#include <math.h>
+#include <numbers>
 
 namespace Utils
 {
@@ -181,41 +181,61 @@ namespace Utils
 		return std::filesystem::path(buffer).parent_path();
 	}
 
-	// calculate the radius of the foveal view based off screen size, viewing distance, and given foveal width (degrees)
-	static float degreesToRadiusPx(float degrees, float viewingDistanceMeters, float screenWidthMeters, float screenWidthPixels)
+	/// <summary>
+	///  Given the degree of error (maximum angular error radius from fixattion point), and viewing distance 
+	/// (from participant's eyes to virtual image), calculate the pixel equivalent error boundary
+	/// </summary>
+	/// <param name="degrees"></param>
+	/// <param name="viewingDistance"></param>
+	/// <param name="diagonal"></param>
+	/// <param name="width"></param>
+	/// <param name="height"></param>
+	static int degreesToPixelError( float degrees, float viewingDistance, float physicalWidth, int pixelWidth)
 	{
-		float radians = degrees * (3.14159265f / 180.0f);
+		float errorDistance = viewingDistance * std::tan(degrees * std::numbers::pi_v<float> / 180.0f);
 
-		float radiusMeters = viewingDistanceMeters * tan(radians * 0.5f);
+		float pixelsPerUnit = pixelWidth / physicalWidth;
 
-		float radiusPixels = (radiusMeters / screenWidthMeters) * screenWidthPixels;
-
-		return radiusPixels;
-	}
-
-	static float fovealRadiusFromPixelsPerDegree(float pixPerDeg, float fovalWidthDeg) {
-		return pixPerDeg * fovalWidthDeg; 
-	}
-	// randomize a local quad location and size for local flicker
-	static std::tuple<float, float, float, float> randomizeQuad(int screenWidth, int screenHeight)
-	{
-		static std::mt19937 rng(std::random_device{}());
-
-		float minSize = 100.0f;
-		float maxSize = 400.0f;
-
-		std::uniform_real_distribution<float> sizeDist(minSize, maxSize);
-		float w = sizeDist(rng);
-		float h = sizeDist(rng);
-
-		std::uniform_real_distribution<float> xDist(0.0f, screenWidth - w);
-		std::uniform_real_distribution<float> yDist(0.0f, screenHeight - h);
-		float x = xDist(rng);
-		float y = yDist(rng);
-
-		return { x, y, w, h };
+		return static_cast<int>(std::round(errorDistance * pixelsPerUnit));
 	}
 
    
+	/// <summary>
+	/// Returns if the gaze is within the error boundary (true) or not (false)
+	/// uses euclidean geometry
+	/// </summary>
+	/// <param name="leftX"></param>
+	/// <param name="leftY"></param>
+	/// <param name="rightX"></param>
+	/// <param name="rightY"></param>
+	/// <param name="pixelError"></param>
+	static bool isGazeValid(
+		int leftX,
+		int leftY,
+		int rightX,
+		int rightY,
+		int pixelError,
+		int leftFixationX,
+		int leftFixationY,
+		int rightFixationX,
+		int rightFixationY)
+	{
+		// Squared distance from left-eye gaze to left-eye fixation point.
+		int leftDeltaX = leftX - leftFixationX;
+		int leftDeltaY = leftY - leftFixationY;
+
+		int leftDistanceSquared = leftDeltaX * leftDeltaX + leftDeltaY * leftDeltaY;
+
+		// Squared distance from right-eye gaze to right-eye fixation point.
+		int rightDeltaX = rightX - rightFixationX;
+		int rightDeltaY = rightY - rightFixationY;
+
+		int rightDistanceSquared = rightDeltaX * rightDeltaX + rightDeltaY * rightDeltaY;
+
+		int errorSquared = pixelError * pixelError;
+
+		// Gaze is valid if either eye is within its error boundary.
+		return leftDistanceSquared <= errorSquared || rightDistanceSquared <= errorSquared;
+	}
 
 }

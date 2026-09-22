@@ -39,6 +39,17 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
         Utils::FatalError("[App] No trials found in config.");
         return false;
     }
+    m_eyetracker.init(
+        m_config.gazePrecisionDegrees,
+        m_config.viewingDistanceCm,
+        m_config.experimentInfo.participantID,
+        m_config.experimentInfo.participantAge,
+        m_config.experimentInfo.participantGender,
+        m_config.experimentInfo.block,
+        m_config.experimentInfo.sessionNumber,
+        m_config.experimentInfo.groupNumber,
+        m_config.outputDirectory.string()
+    );
 
     timeoutDuration = m_config.imageTime;
     flickerRate = m_config.flickerRate;
@@ -71,6 +82,7 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
     glfwSetWindowUserPointer(m_window, this);
     glfwSetKeyCallback(m_window, keyCallback);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
+    glfwGetMonitorPhysicalSize(monitor, &m_physicalMonitorWidth, &m_physicalMonitorHeight);
 
     #ifndef DEBUG_MOUSE_GAZE
         glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // disable cursor
@@ -315,7 +327,18 @@ void App::update() {
     }
 
     else if (m_phase == TrialPhase::ShowBuffer) {
-        if (elapsed >= waitTimeoutDuration) {
+        bool gazeWithinError = true;
+       
+        int pixelError = Utils::degreesToPixelError(m_config.gazePrecisionDegrees, m_config.viewingDistanceCm, m_physicalMonitorWidth, m_monitorWidth);
+        gazeWithinError = m_eyetracker.gazeWithinError(
+            pixelError,
+            m_config.trials[m_trialIndex].fixationCoords.Left.X,
+            m_config.trials[m_trialIndex].fixationCoords.Left.Y,
+            m_config.trials[m_trialIndex].fixationCoords.Right.X,
+            m_config.trials[m_trialIndex].fixationCoords.Right.Y 
+        );
+
+        if (elapsed >= waitTimeoutDuration && gazeWithinError) {
             showNextImageInTrial();
         }
     }
