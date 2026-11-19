@@ -12,6 +12,10 @@
 #include <string>
 #include <vector>
 
+#include "tobii_research_eyetracker.h"
+#include "tobii_research_streams.h"
+#include "tobii_research.h"
+
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics;
     std::optional<uint32_t> present;
@@ -151,6 +155,7 @@ private:
     // validation
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
+    void renderCalibrationTarget(VkCommandBuffer cmd, TobiiResearchNormalizedPoint2D target, float progress, int monitorWidth, int monitorHeight);
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback( VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT*, void*);
 

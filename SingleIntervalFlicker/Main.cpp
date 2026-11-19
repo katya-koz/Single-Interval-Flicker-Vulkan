@@ -6,6 +6,7 @@
 #include <string>
 #include <shlobj.h>
 #include <sstream>
+#include "Utils.h"
 
 int main(int argc, char** argv)
 {
@@ -16,7 +17,7 @@ int main(int argc, char** argv)
     }
 
     std::string inputPath = argv[1];
-    std::string configPath = "config.json";
+    std::filesystem::path configPath = Utils::getExecutableDirectory() / "config.json";
 
     for (int i = 2; i < argc; ++i)
     {
@@ -41,12 +42,13 @@ int main(int argc, char** argv)
 
     App app;
 
-    if (!app.init(configPath, inputPath))
+    if (!app.init(configPath.string(), inputPath))
     {
         std::cerr << "Failed to initialize app with config: "
-            << configPath << "\n";
+            << configPath << '\n';
         return -1;
     }
+
 
     app.run();
 
