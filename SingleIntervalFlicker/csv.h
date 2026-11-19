@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include "Config.h"
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -25,10 +26,9 @@ public:
 	// `tag` is an optional extra token inserted into the filename (e.g. "gaze")
 	// so multiple CSVs can share the same participant/session/block/group
 	// naming without overwriting each other.
-	bool init(const std::string& participantId, int participantAge, char participantGender,
-		int blockNumber, int sessionNumber, int groupNumber,
-		const std::vector<std::string>& headers, const std::string& outputDirectory = "",
-		const std::string& tag = "");
+	// hasMetadata header signifies if there should be a metadata block written (includes timestamp, participant info)
+
+	bool init(BlockInformation blockInfo, const std::vector<std::string>& headers, bool hasMetadataHeader = false, const std::string& tag = "");
 
 	void writeRow(const std::vector<std::string>& fields);
 	void close();

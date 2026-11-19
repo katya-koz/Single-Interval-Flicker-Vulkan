@@ -1,10 +1,10 @@
 #include "app.h"
-
+#include <cmath>
 #include <Windows.h>
 #include <mmsystem.h>
 #include "render.h" 
-#include "tobii_research.h" // tobii_research_find_all_eyetrackers / tobii_research_free_eyetrackers
-#include <algorithm>         // std::min
+#include "tobii_research.h"
+#include <algorithm>
 #include <chrono>
 #include <stdexcept>
 #include <sstream>
@@ -19,7 +19,7 @@ App::~App() {
     if (m_decodeThread.joinable())
         m_decodeThread.join();
     m_renderer.waitIdle();   // make sure GPU is done before window dies
-
+    m_eyetracker.stop(m_tobiiHandle); // unsub from eye tracker
     if (m_window) glfwDestroyWindow(m_window);
     glfwTerminate();
 }
@@ -32,30 +32,19 @@ App::~App() {
 /// <returns>True if app successsfully initialized. False otherwise. </returns>
 bool App::init(const std::string& configPath, std::string& inputPath) {
     if (!m_config.loadConfig(configPath)) return false;
-    if (!m_config.loadTrials(inputPath)) return false;
+   
 
+    m_displayInfo.viewingDistanceCm = m_config.experimentInfo.viewingDistanceCm;
 
-    if (m_config.trials.empty()) {
-        Utils::FatalError("[App] No trials found in config.");
-        return false;
-    }
-    m_eyetracker.init(
-        m_config.gazePrecisionDegrees,
-        m_config.viewingDistanceCm,
-        m_config.experimentInfo.participantID,
-        m_config.experimentInfo.participantAge,
-        m_config.experimentInfo.participantGender,
-        m_config.experimentInfo.block,
-        m_config.experimentInfo.sessionNumber,
-        m_config.experimentInfo.groupNumber,
-        m_config.outputDirectory.string()
-    );
-
-    timeoutDuration = m_config.imageTime;
-    flickerRate = m_config.flickerRate;
+    timeoutDuration = m_config.experimentInfo.imageTime;
+    flickerRate = m_config.experimentInfo.flickerRate;
     m_flickerInterval = 1.0 / (flickerRate * 2.0);
 
-    waitTimeoutDuration = m_config.waitTime;
+
+    m_maxFixationMs = m_config.experimentInfo.maxFixationTimeS * 1000; 
+    // max fixation is enabled only when eye tracking is enabled and the maxfixation time is greater than the fixation time ms
+    isMaxFixation = m_config.experimentInfo.isEyeTracking && m_maxFixationMs <= m_config.experimentInfo.fixationTimeMs ? false : true; 
+    waitTimeoutDuration = m_config.experimentInfo.waitTime;
 
     // shuffles the trials and the order of flickers
     // commented out: trial order determined by trials.csv
@@ -69,12 +58,13 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-    m_monitorWidth = mode->width;
-    m_monitorHeight = mode->height;
+    m_displayInfo.pixelWidth = mode->width;
+    m_displayInfo.pixelHeight = mode->height;
+
 
     m_window = glfwCreateWindow(
-        m_monitorWidth * 2, // instead of dealing with two windows, use 1 window stretched to fit 2 monitors. ( this is so i dont have to deal with switching contexts all the time)
-        m_monitorHeight,
+        m_displayInfo.pixelWidth * 2, // instead of dealing with two windows, use 1 window stretched to fit 2 monitors. ( this is so i dont have to deal with switching contexts all the time)
+        m_displayInfo.pixelHeight,
         "Flicker Experiment",
         nullptr,
         nullptr
@@ -82,13 +72,39 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
     glfwSetWindowUserPointer(m_window, this);
     glfwSetKeyCallback(m_window, keyCallback);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
-    glfwGetMonitorPhysicalSize(monitor, &m_physicalMonitorWidth, &m_physicalMonitorHeight);
+    glfwGetMonitorPhysicalSize(monitor, &m_displayInfo.physicalWidthMm, &m_displayInfo.physicalHeightMm); // returns sizes in mm
 
-    #ifndef DEBUG_MOUSE_GAZE
-        glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // disable cursor
-    #endif
+    //printf("%d x %d", m_displayInfo.physicalWidthMm, m_displayInfo.physicalHeightMm);
+
+
+    // we need to load trials here since we have to init the display info before loading
+    if (!m_config.loadTrials(inputPath, m_displayInfo)) return false;
+
+    if (m_config.trials.empty()) {
+        Utils::FatalError("[App] No trials found in config.");
+        return false;
+    }
+
+    // config debug print
+    //std::cout << m_config.toString() << std::endl;
+
+    std::cerr << "[Config] Successfully loaded: " + configPath + "\n";
+    std::cout << m_config.toString() << std::endl;
+
+
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.init(
+            m_config.experimentInfo,
+            m_displayInfo,
+            m_config.blockInfo
+        );
+    }
+
+    //#ifndef DEBUG_MOUSE_GAZE
+    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); // disable cursor
+    //#endif
     // init the renderer
-    if (!m_renderer.init(m_window, m_monitorWidth, m_monitorHeight, m_config.displayMode))
+    if (!m_renderer.init(m_window, m_displayInfo.pixelWidth, m_displayInfo.pixelHeight, m_config.experimentInfo.displayMode))
         return false;
 
     // upload the initial texturess (instructionss, and the first trial textures)
@@ -97,15 +113,12 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
 
     // initialize the CSV to track responses
     m_csv.init(
-        m_config.experimentInfo.participantID,
-        m_config.experimentInfo.participantAge,
-        m_config.experimentInfo.participantGender,
-        m_config.experimentInfo.block,
-        m_config.experimentInfo.sessionNumber,
-        m_config.experimentInfo.groupNumber,
+        m_config.blockInfo,
         //m_config.intervalMode,  dont need for now
         //m_config.displayMode, dont need for now
         {
+            "Trial Index",
+            "Image ID",
             "Codec",
             "Foveation",
             "Image",
@@ -118,6 +131,7 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
             "Response",
             "Duration",
             "Subject",
+
             "Mean Gaze X (Left)",
             "Mean Gaze Y (Left)",
             "Mean Gaze X (Right)",
@@ -126,19 +140,17 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
             "Std. Dev. Gaze Y (Left)",
             "Std. Dev. Gaze X (Right)",
             "Std. Dev. Gaze Y (Right)",
+
+            "Fixation Window (ms)",
+            "Max Mean Position (pixels)",
+            "Max Standard Deviation (pixels)"
         },
-        m_config.outputDirectory.string());
+        true, // has metadata header
+        ""); // no tag
 
 
-    #ifdef DEBUG_MOUSE_GAZE
-        // Debug builds don't touch the Tobii SDK at all: the mouse cursor stands in for
-        // gaze (App::run() calls m_eyetracker.updateMouseGaze() every frame), and there's
-        // no physical device to calibrate, so skip straight to the start screen.
-        m_phase = TrialPhase::StartInstructions;
-        m_phaseStart = glfwGetTime();
-        return true;
-    #else
-        // *************** find and connect to the eye tracker **********************
+    // *************** find and connect to the eye tracker **********************
+    if (m_config.experimentInfo.isEyeTracking) {
         TobiiResearchEyeTrackers* eyetrackers = nullptr;
         TobiiResearchStatus findStatus = tobii_research_find_all_eyetrackers(&eyetrackers);
 
@@ -152,35 +164,38 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
 
         m_eyetracker.start(m_tobiiHandle); // subscribe to gaze data
 
-        // *************** calibration **********************
-        if (!m_eyetracker.enterCalibration(m_tobiiHandle)) {
-            Utils::FatalError("[App] Failed to enter calibration mode.");
-            return false;
-        }
 
-        m_calibrationIndex = 0;
-        m_calibrationStage = CalibrationStage::ShowTarget;
+        std::cerr << "Eye tracking is set to TRUE for this block.\n";
 
-        m_phase = TrialPhase::Calibration;
-        m_phaseStart = glfwGetTime();
-        return true;
-    #endif
+    }
+    else {
+        std::cerr << "[WARNING] Eye tracking is set to FALSE for this block. Gaze data will not be recorded; 'Wait Time (s)' is the fixation time; Gaze statistics in output csv will be represented with '-1'.\n";
+    }
+
+    m_phase = TrialPhase::StartInstructions;
+
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.updateStage(TrialPhase::StartInstructions, -1);
+    }
+
+    m_phaseStart = glfwGetTime();
+    return true;
+    //#endif
 }
 
 /// <summary>
 /// Main loop, also controls FPS.
 /// </summary>
 void App::run() {
-    using clock = std::chrono::high_resolution_clock;
+    //using clock = std::chrono::high_resolution_clock;
     //const double targetFrameTime = 1.0 / m_config.targetFPS; // removed. messes with timing state switches
-    auto nextFrameTime = clock::now();
-
+    //auto nextFrameTime = clock::now();
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.markExperimentStart(); // marks when to record time stamps from tobii tracker
+    }
     while (!glfwWindowShouldClose(m_window) && m_phase != TrialPhase::Done) {
         glfwPollEvents();
         update();
-#ifdef DEBUG_MOUSE_GAZE
-        m_eyetracker.updateMouseGaze(m_window, m_monitorWidth);
-#endif
         m_renderer.drawFrame(buildScene()); // draws the scene
     }
 }
@@ -198,52 +213,64 @@ FrameScene App::buildScene() const {
     FrameScene s;
     //s.drawFixationPoint = true;
 
-    s.fixationPointCoords = m_config.trials[m_trialIndex].fixationCoords;
+    if(m_phase != TrialPhase::StartInstructions)
+    {
+        s.fixationPointCoords = m_config.trials[m_trialIndex].fixationCoords;
+
+    }
+    
+    if (m_config.experimentInfo.isEyeTracking) {
+
+
+        TobiiResearchGazeData g;
+        if (m_eyetracker.getLatestSample(g)) {
+            s.leftGazeNorm = {
+                g.left_eye.gaze_point.position_on_display_area.x,
+                g.left_eye.gaze_point.position_on_display_area.y,
+                g.left_eye.gaze_point.validity == TOBII_RESEARCH_VALIDITY_VALID
+            };
+            s.rightGazeNorm = {
+                g.right_eye.gaze_point.position_on_display_area.x,
+                g.right_eye.gaze_point.position_on_display_area.y,
+                g.right_eye.gaze_point.validity == TOBII_RESEARCH_VALIDITY_VALID
+            };
+        }
+    }
 
     switch (m_phase) {
     case TrialPhase::StartInstructions:
     {
-        s.mode = FrameScene::Mode::StartInstructions;
+        s.mode = TrialPhase::StartInstructions;
         break;
     }
 
     case TrialPhase::ShowSideBySideImages:
     {
-        s.mode = FrameScene::Mode::ShowSingleIntervalImages;
+        s.mode = TrialPhase::ShowSideBySideImages;
         s.flickerShow = m_flickerShow;
         s.flickerIndex = (m_trialIndex < (int)m_config.trials.size()) ? m_config.trials[m_trialIndex].flickerIndex : 0;
         break;
     }
 
-    case TrialPhase::ShowFullFieldImage: {
+    case TrialPhase::ShowImage: {
         const int flickerIndex = (m_trialIndex < (int)m_config.trials.size()) ? m_config.trials[m_trialIndex].flickerIndex : 0;
         const bool isFlickerInterval = (flickerIndex == m_interTrialImageIndex);
 
-        s.mode = isFlickerInterval ? FrameScene::Mode::ShowFlickerImage : FrameScene::Mode::ShowImage;
+        s.mode = isFlickerInterval ? TrialPhase::ShowFlickerImage : TrialPhase::ShowImage;
         s.flickerShow = m_flickerShow;
         break;
     }
 
-    case TrialPhase::Calibration:
-    {
-        const double elapsed = glfwGetTime() - m_phaseStart; // buildScene() is called separately from update(), so this needs its own elapsed
-        s.mode = FrameScene::Mode::Calibration;
-        s.calibrationTarget = m_calibrationPoints[m_calibrationIndex];
-        s.calibrationProgress =
-            static_cast<float>(
-                (std::min)(1.0, elapsed / CALIBRATION_SETTLE_TIME)
-                );        
-        break;
-    }
+
     case TrialPhase::ShowBuffer:
     {
-        s.mode = FrameScene::Mode::ShowBuffer;
+        s.mode = TrialPhase::ShowBuffer;
         break;
     }
 
     case TrialPhase::WaitForResponse:
     {
-        s.mode = FrameScene::Mode::WaitForResponse;
+        s.mode = TrialPhase::WaitForResponse;
         break;
     }
 
@@ -251,7 +278,7 @@ FrameScene App::buildScene() const {
     {}
     default:
     {
-        s.mode = FrameScene::Mode::Blank;
+        s.mode = TrialPhase::Blank;
         break;
     }
     }
@@ -259,16 +286,18 @@ FrameScene App::buildScene() const {
 }
 
 void App::initGame() {
+    
     m_trialIndex = 0;
     m_interTrialImageIndex = 0;
 
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.clearSamples();
+        //m_driftCaptureRequested = false;
+        //m_phase = TrialPhase::DriftCheck;
+    }
+   
     m_phase = TrialPhase::ShowBuffer;
-    //if(m_config.intervalMode == 1 ){
-    //    m_phase = TrialPhase::ShowSideBySideImages;
-    //}
-    //else {
-    //    m_phase = TrialPhase::ShowFullFieldImage;
-    //}
+    updateEyeTrackerStage();
     m_phaseStart = glfwGetTime();
     m_flickerLast = m_phaseStart;
     m_flickerShow = false;
@@ -283,20 +312,20 @@ void App::update() {
     const double now = glfwGetTime();
     const double elapsed = now - m_phaseStart;
 
-    if (m_phase == TrialPhase::ShowSideBySideImages) {
-        if (elapsed >= timeoutDuration) {
-            advancePhase();
-            return;
-        }
+    //if (m_phase == TrialPhase::ShowSideBySideImages) {
+    //    if (elapsed >= timeoutDuration) {
+    //        advancePhase();
+    //        return;
+    //    }
 
-        if (now - m_flickerLast >= m_flickerInterval) {
-            m_flickerLast = now;
-            m_flickerShow = !m_flickerShow;
-        }
-    }
+    //    if (now - m_flickerLast >= m_flickerInterval) {
+    //        m_flickerLast = now;
+    //        m_flickerShow = !m_flickerShow;
+    //    }
+    //}
 
-
-    else if (m_phase == TrialPhase::ShowFullFieldImage) {
+    //else
+    if (m_phase == TrialPhase::ShowImage) {
         if (elapsed >= timeoutDuration) {
             m_eyetracker.stopCollection();
             //std::cout << "elapsed time: " << elapsed << " seconds \n";
@@ -327,46 +356,40 @@ void App::update() {
     }
 
     else if (m_phase == TrialPhase::ShowBuffer) {
+        if (isMaxFixation && elapsed >= m_config.experimentInfo.maxFixationTimeS) {
+            // bypass gaze requirement - max fixation time has been exceeded
+            bypassGaze = false;
+            // add for retrial
+            if (!addedRetrialForCurrentTrial && !m_config.trials[m_trialIndex].isControl) { // do not retrial if control
+                addedRetrialForCurrentTrial = true;
+                m_config.trials.push_back(m_config.trials[m_trialIndex]);
+            }
+            showNextImageInTrial();
+        }
+        
         bool gazeWithinError = true;
-       
-        int pixelError = Utils::degreesToPixelError(m_config.gazePrecisionDegrees, m_config.viewingDistanceCm, m_physicalMonitorWidth, m_monitorWidth);
-        gazeWithinError = m_eyetracker.gazeWithinError(
-            pixelError,
-            m_config.trials[m_trialIndex].fixationCoords.Left.X,
-            m_config.trials[m_trialIndex].fixationCoords.Left.Y,
-            m_config.trials[m_trialIndex].fixationCoords.Right.X,
-            m_config.trials[m_trialIndex].fixationCoords.Right.Y 
-        );
 
-        if (elapsed >= waitTimeoutDuration && gazeWithinError) {
+        if (m_config.experimentInfo.isEyeTracking) {
+
+            gazeWithinError = m_eyetracker.gazeWithinError(
+                m_config.trials[m_trialIndex].maxMeanPositionPixels,
+                m_config.trials[m_trialIndex].maxSpreadPixels,
+                m_config.trials[m_trialIndex].fixationCoords
+            );
+        }
+
+        if ((m_config.experimentInfo.isEyeTracking && bypassGaze) || (elapsed >= waitTimeoutDuration && gazeWithinError)) {
+            bypassGaze = false;
             showNextImageInTrial();
         }
     }
-    else if (m_phase == TrialPhase::Calibration) {
-        if (elapsed >= CALIBRATION_SETTLE_TIME && m_calibrationStage == CalibrationStage::ShowTarget) {
-            m_calibrationStage = CalibrationStage::Collecting;
-        }
-        else if (m_calibrationStage == CalibrationStage::Collecting) {
-            const auto& pt = m_calibrationPoints[m_calibrationIndex];
-            m_eyetracker.collectCalibrationPoint(m_tobiiHandle, pt.x, pt.y); // brief blocking call - fine at this cadence
-
-            if (++m_calibrationIndex >= m_calibrationPoints.size()) {
-                bool ok = m_eyetracker.finishCalibration(m_tobiiHandle);
-                // TODO: if (!ok), consider re-running just the weak points instead of bailing straight to trials
-                m_phase = TrialPhase::StartInstructions;
-            }
-            else {
-                m_calibrationStage = CalibrationStage::ShowTarget;
-            }
-            m_phaseStart = glfwGetTime();
-        }
-    }
-
     pollGamepad(); // collect button press events from the gamepad
 }
 
 void App::advancePhase() {
     m_phase = TrialPhase::WaitForResponse;
+    updateEyeTrackerStage();
+    addedRetrialForCurrentTrial = false; // reset flag
     m_phaseStart = glfwGetTime();
     m_responseStart = m_phaseStart;
 
@@ -378,10 +401,30 @@ void App::advancePhase() {
         m_decodeThread = std::thread(&App::decodeImagesForTrial, this, m_config.trials[m_trialIndex + 1]);
     }
 }
+void App::updateEyeTrackerStage() {
+
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.updateStage(m_phase, m_trialIndex);
+    }
+}
+//
+//void App::clearEyeTrackingSamples() {
+//    if (m_config.experimentInfo.isEyeTracking) {
+//        m_eyetracker.updateStage(m_phase, m_trialIndex);
+//    }
+//
+//};
+//void App::setEyeTrackingTimeStart() {
+//    if (m_config.experimentInfo.isEyeTracking) {
+//        m_eyetracker.updateStage(m_phase, m_trialIndex);
+//    }
+//}
 
 
 void App::showBuffer() {
     m_phase = TrialPhase::ShowBuffer;
+    updateEyeTrackerStage();
+
     m_eyetracker.startCollection();
     m_phaseStart = glfwGetTime();
 }
@@ -392,21 +435,23 @@ void App::showBuffer() {
 //}
 // added buffer between single interval mode early exit
 void App::showNextImageInTrial() {
-    if (m_config.intervalMode == 1) {
-        // single interval mode
-        m_phase = TrialPhase::ShowSideBySideImages;
-        m_phaseStart = glfwGetTime();
-        m_responseStart = m_phaseStart;
-        m_flickerShow = false;
-        m_flickerLast = m_phaseStart;
-    }
-    else {
+    //if (m_config.experimentInfo.intervalMode == 1) {
+    //    // single interval mode
+    //    m_phase = TrialPhase::ShowSideBySideImages;
+    //    updateEyeTrackerStage();
+    //    m_phaseStart = glfwGetTime();
+    //    m_responseStart = m_phaseStart;
+    //    m_flickerShow = false;
+    //    m_flickerLast = m_phaseStart;
+    //}
+    //else {
         // 2 interval mode
-        m_phase = TrialPhase::ShowFullFieldImage;
-        m_phaseStart = glfwGetTime();
-        m_flickerShow = false;
-        m_flickerLast = m_phaseStart;
-    }
+    m_phase = TrialPhase::ShowImage;
+    updateEyeTrackerStage();
+    m_phaseStart = glfwGetTime();
+    m_flickerShow = false;
+    m_flickerLast = m_phaseStart;
+    //}
 }
 
 
@@ -424,7 +469,7 @@ void App::recordResponse(int key) {
     TrialResult result;
 
     // not sure if reaction time is needed
-    if (m_config.intervalMode == 0) { // 2 interval mode - start counting reaction tiome from response start
+    if (m_config.experimentInfo.intervalMode == 0) { // 2 interval mode - start counting reaction tiome from response start
         result.reactionTimeMS = (glfwGetTime() - m_responseStart) * 1000; // get time in ms
 
     }
@@ -433,6 +478,7 @@ void App::recordResponse(int key) {
     }
 
     result.imageName = m_config.trials[m_trialIndex].name;
+    result.imageIndex = m_config.trials[m_trialIndex].index;
     result.codec = m_config.trials[m_trialIndex].codec;
     result.positionX_L = m_config.trials[m_trialIndex].fixationCoords.Left.X;
     result.positionY_L = m_config.trials[m_trialIndex].fixationCoords.Left.Y;
@@ -451,7 +497,7 @@ void App::recordResponse(int key) {
     // if this is in single interval mode, need to flip the answer since it is left/right
     // in two interval mode, the answer is based on the first vs second image, so no 
     // need to flip the answer value in that case.
-    if (m_config.intervalMode == 1) {
+    if (m_config.experimentInfo.intervalMode == 1) {
         // remember that the mirrors flip the image, so the left key actually refers to the right image and vice versa.
         result.response = (key == GLFW_KEY_LEFT) ? 1 : 0;
     }
@@ -475,40 +521,79 @@ void App::recordResponse(int key) {
 
     // calculate eye tracking statistics
 
+    if (m_config.experimentInfo.isEyeTracking) {
+        Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
+            //m_eyetracker.getCorrectedTrialSamples(), // make sure to use only the samples collected during the trials... ** drift correction
+            m_eyetracker.getTrialSamples(),
+            m_displayInfo
+        );
 
-    Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
-        m_eyetracker.getSamples(),
-        m_monitorWidth, m_monitorHeight,
-        m_config.trials[m_trialIndex].imageWidth, m_config.trials[m_trialIndex].imageHeight,   // real stimulus resolution
-        result.positionX_L, result.positionY_L,
-        result.positionX_R, result.positionY_R
-    );
+        m_eyetracker.clearSamples();
+        m_csv.writeRow(
+            {
+                std::to_string(m_trialIndex),
+                std::to_string(result.imageIndex),
+                result.codec,
+                result.foveatLevel,
+                result.imageName,
+                std::to_string(result.actual),
+                std::to_string(result.positionX_L),
+                std::to_string(result.positionY_L),
+                std::to_string(result.positionX_R),
+                std::to_string(result.positionY_R),
+                result.viewingMode,
+                std::to_string(result.response),
+                std::to_string((int)(result.reactionTimeMS)),
+                m_config.blockInfo.participantID,
 
-    m_eyetracker.clearSamples();
-    m_csv.writeRow(
-        {
-            result.codec,
-            result.foveatLevel,
-            result.imageName,
-            std::to_string(result.actual),
-            std::to_string(result.positionX_L),
-            std::to_string(result.positionY_L),
-            std::to_string(result.positionX_R),
-            std::to_string(result.positionY_R),
-            result.viewingMode,
-            std::to_string(result.response),
-            std::to_string((int)(result.reactionTimeMS)),
-            m_config.experimentInfo.participantID,
-            std::to_string(gazeStats.leftMean_X),
-            std::to_string(gazeStats.leftMean_Y),
-            std::to_string(gazeStats.rightMean_X),
-            std::to_string(gazeStats.rightMean_Y),
-            std::to_string(gazeStats.leftStdDev_X),
-            std::to_string(gazeStats.leftStdDev_Y),
-            std::to_string(gazeStats.rightStdDev_X),
-            std::to_string(gazeStats.rightStdDev_Y)
-        });
+                // gaze statistics from samples collected during images shown
+                std::to_string(gazeStats.leftMean_X),
+                std::to_string(gazeStats.leftMean_Y),
+                std::to_string(gazeStats.rightMean_X),
+                std::to_string(gazeStats.rightMean_Y),
+                std::to_string(gazeStats.leftStdDev_X),
+                std::to_string(gazeStats.leftStdDev_Y),
+                std::to_string(gazeStats.rightStdDev_X),
+                std::to_string(gazeStats.rightStdDev_Y),
 
+                std::to_string(m_config.experimentInfo.fixationTimeMs),                                                // fixation time window in MS
+                std::to_string(m_config.trials[m_trialIndex].maxMeanPositionPixels),                // max mean posiiton (pixels)
+                std::to_string(m_config.trials[m_trialIndex].maxSpreadPixels)              // max standard deviation (pixels) 
+            });
+    }
+    else { // when not eye tracking, omit eye tracking related values
+
+
+        m_csv.writeRow(
+            {
+                std::to_string(m_trialIndex),
+                std::to_string(result.imageIndex),
+                result.codec,
+                result.foveatLevel,
+                result.imageName,
+                std::to_string(result.actual),
+                std::to_string(result.positionX_L),
+                std::to_string(result.positionY_L),
+                std::to_string(result.positionX_R),
+                std::to_string(result.positionY_R),
+                result.viewingMode,
+                std::to_string(result.response),
+                std::to_string((int)(result.reactionTimeMS)),
+                m_config.blockInfo.participantID,
+                // fill remaining gaze / trackng stats that wont be needed for no eye tracking
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1",
+                "-1"
+            });
+    }
     if (m_decodeThread.joinable()) {
         m_decodeThread.join();
         uploadDecodedTextures(); // after joining, all images are decoded. so we can upload them to the gpu now
@@ -519,7 +604,9 @@ void App::recordResponse(int key) {
     m_trialIndex++;
 
     if (m_trialIndex >= (int)m_config.trials.size()) {
+        m_trialIndex = -1; // this is just for the gaze logging csv file
         m_phase = TrialPhase::Done;
+        updateEyeTrackerStage();
         return;
     }
 
@@ -530,14 +617,8 @@ void App::recordResponse(int key) {
         loadTexturesForTrial(m_config.trials[m_trialIndex]);
     }
 
-    if (m_config.intervalMode == 1) { // single interval mode 
-        //m_phase = TrialPhase::ShowSideBySideImages;
-        showBuffer();
-    }
-    else { // 2 interval mode
-        //m_phase = TrialPhase::ShowFullFieldImage;
-        showBuffer();
-    }
+    showBuffer();
+  
 
     m_phaseStart = glfwGetTime();
     m_responseStart = m_phaseStart;
@@ -580,7 +661,7 @@ void App::loadInstructionsTextures()
 {
     const auto assetsDir = Utils::getExecutableDirectory() / "assets" / "instructions";
 
-    if (m_config.intervalMode == 0) { // 2 interval mode
+    if (m_config.experimentInfo.intervalMode == 0) { // 2 interval mode
         m_renderer.decodeAndUploadTexture(TEX_WAIT_L, (assetsDir / "responsescreen0_L.ppm").string());
 
         m_renderer.decodeAndUploadTexture(TEX_WAIT_R, (assetsDir / "responsescreen0_R.ppm").string());
@@ -601,7 +682,7 @@ void App::loadInstructionsTextures()
 /// // load the textures for the current trial based on the viewing mode. these are loaded every time the trial is switched.
 /// </summary>
 /// <param name="img">The paths to the 4 image permuatationss (L, R, Original, Degraded) </param>
-void App::loadTexturesForTrial(const ImagePaths& img) {
+void App::loadTexturesForTrial(const TrialInformation& img) {
     switch (img.viewingMode) {
     case 0: // stereo
         m_renderer.decodeAndUploadTexture(TEX_ORIG_L, img.L_orig.string());
@@ -629,7 +710,7 @@ void App::loadTexturesForTrial(const ImagePaths& img) {
 /// This is to seperately decode images (which is cpu intensive)
 /// </summary>
 /// <param name="img"></param>
-void App::decodeImagesForTrial(const ImagePaths& img) {
+void App::decodeImagesForTrial(const TrialInformation& img) {
     switch (img.viewingMode) {
     case 0: // stereo
         decodeImageForUpload(TEX_ORIG_L, img.L_orig.string());
@@ -683,6 +764,12 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/,
     if (action != GLFW_PRESS) return;
     App* app = static_cast<App*>(glfwGetWindowUserPointer(window));
 
+    if (key == GLFW_KEY_SPACE) {
+        //if (app->m_phase == TrialPhase::DriftCheck) app->m_driftCaptureRequested = true;
+        //else 
+        app->bypassGaze = true;
+    }
+
     if (key == GLFW_KEY_ESCAPE) {
         glfwSetWindowShouldClose(window, true);
         return;
@@ -693,3 +780,4 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/,
     if (key == GLFW_KEY_ENTER && app->m_phase == TrialPhase::StartInstructions)
         app->initGame();
 }
+
