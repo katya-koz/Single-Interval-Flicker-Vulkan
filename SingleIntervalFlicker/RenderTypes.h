@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan.h>
 
+#include "FixationCoords.h"
+#include <vulkan/vulkan.h>
+#include "TrialPhase.h"
 //********
 // These are shared types (shared between app.cpp and render.cpp)
 //********
@@ -35,39 +37,23 @@ struct DecodedImage {
 };
 
 
-struct Coords {
-    int X = 0;
-    int Y = 0;
-};
-
-struct FixationCoordinates {
-    Coords Left = Coords();
-    Coords Right = Coords();
-};
-
-// Normalized [0,1] screen-space point (0,0 = top-left, 1,1 = bottom-right).
-// Used for the calibration target so this shared header doesn't need to
-// depend on TobiiResearchNormalizedPoint2D / the Tobii SDK headers.
 struct NormalizedPoint2D {
     float x = 0.5f;
     float y = 0.5f;
 };
 
+struct NormalizedGaze {
+    double x = 0.0;
+    double y = 0.0;
+    bool valid = false;
+};
+
 // What App asks the renderer to put on screen this frame.
 // The renderer translates this into Vulkan draw calls.
 struct FrameScene {
-    enum class Mode {
-        StartInstructions,         // TEX_START_L / TEX_START_R
-        ShowSingleIntervalImages,  // TEX_ORIG_L/R, plus optional degraded overlay
-        ShowFlickerImage,          // fullscreen TEX_DEC_L/R — this interval holds the degraded stim. overlay original on flicker times
-        ShowImage,                 // fullscreen TEX_ORIG_L/R — this interval holds the original
-        WaitForResponse,           // TEX_WAIT_L / TEX_WAIT_R
-        ShowBuffer,                // Show the buffer grey screen between images within same trial
-        Blank                      // clear to black, fixationPoint only
-        ,Calibration
-    };
+    
 
-    Mode mode = Mode::Blank;
+    TrialPhase mode = TrialPhase::Blank;
 
     // Only used when mode == ShowSingleIntervalImages:
     //  flickerShow == true --> overlay flicker image on top of originals
@@ -75,6 +61,8 @@ struct FrameScene {
     //  flickerIndex != 0 --> degraded on image1 slot, original on image0 slot
     bool flickerShow = false;
     int  flickerIndex = 0;
+
+    float pixelError = 0.0;
 
     // fixation is always drawn
     bool drawFixationPoint = true;
@@ -84,4 +72,7 @@ struct FrameScene {
     // Only used when mode == Calibration:
     NormalizedPoint2D calibrationTarget = NormalizedPoint2D();  // where to draw the target dot, normalized [0,1]
     float calibrationProgress = 0.0f;                           // 0..1, e.g. drives a shrinking/filling animation before a sample is taken
+
+    NormalizedGaze leftGazeNorm;
+    NormalizedGaze rightGazeNorm;
 };

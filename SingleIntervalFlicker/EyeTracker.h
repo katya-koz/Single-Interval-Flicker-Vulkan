@@ -7,70 +7,95 @@
 #include <string>
 #include <thread>
 #include <vector>
-#define DEBUG_MOUSE_GAZE
+//#define DEBUG_MOUSE_GAZE
 #include "csv.h"
 #include "tobii_research_eyetracker.h"
 #include "tobii_research_streams.h"
 
+#include "RingBuffer.h"
+#include <cstdint>
+#include <limits>
+#include "DisplayInfo.h"
+#include "Config.h"
+#include "TrialPhase.h"
+
+
+struct GazeOffset {
+	float lx = 0, ly = 0, rx = 0, ry = 0;   // measured - target, in pixels
+	bool lValid = false, rValid = false;
+};
+
+
+struct FixationStats { // stats for fixation window 
+	int timeWindowMS;
+	float meanPositionDistance_0_L;
+	float meanPositionDistance_0_R;
+	float meanPositionDistance_1_L;
+	float meanPositionDistance_1_R;
+	float stdDev_0_L;
+	float stdDev_0_R;
+	float stdDev_1_L;
+	float stdDev_1_R;
+};
+
 class EyeTracker {
+
+	
+
 public:
 	EyeTracker() = default;
 	~EyeTracker();
 
-	EyeTracker(const EyeTracker&) = delete;
-	EyeTracker& operator=(const EyeTracker&) = delete;
+	EyeTracker( EyeTracker&) = delete;
+	EyeTracker& operator=( EyeTracker&) = delete;
 
-	// If participantId is non-empty, this also opens a dedicated gaze-level
-	// CSV (same participant/age/gender/block/session/group naming as
-	// whatever CSV you already use for trial data, tagged "gaze" so the
-	// filenames don't collide) and starts a background thread that logs
-	// every incoming gaze sample to it -- independent of startCollection().
-	void init(float gazePrecision, float viewingDistance, const std::string& participantId = "",
-		int participantAge = 0, char participantGender = 'U', int blockNumber = 0,
-		int sessionNumber = 0, int groupNumber = 0, const std::string& outputDirectory = "");
 
+	void init( ExperimentInformation experimentInfo, DisplayInfo displayInfo, BlockInformation blockInfo);
 	void start(TobiiResearchEyeTracker* eyetracker);
 	void stop(TobiiResearchEyeTracker* eyetracker);
-	bool gazeWithinError(
-		int pixelError,
-		int leftFixationX,
-		int leftFixationY,
-		int rightFixationX,
-		int rightFixationY
-	);
+
 	void startCollection();
 	void stopCollection();
 
-	std::vector<TobiiResearchGazeData> getSamples();
+	DisplayInfo m_displayInfo; 
+	std::vector<TobiiResearchGazeData> getTrialSamples() const;
 	void clearSamples();
 
-	bool enterCalibration(TobiiResearchEyeTracker* eyetracker);
-	bool collectCalibrationPoint(TobiiResearchEyeTracker* eyetracker, float x, float y);
-	bool finishCalibration(TobiiResearchEyeTracker* eyetracker);
+	static constexpr size_t kGazeHz = 120;
+	static constexpr size_t kFixationWindowSec = 3;
+	static constexpr size_t kSampleCapacity = kGazeHz * kFixationWindowSec;
 
-#ifdef DEBUG_MOUSE_GAZE
-	void updateMouseGaze(struct GLFWwindow* window, int monitorWidth);
-#endif
+	void markExperimentStart();   // defines t = 0 for the gaze log
+
+	bool gazeWithinError(double maxPixelMeanPosition, double maxPixelSpread, FixationCoordinates fixationCoords);
+	bool getLatestSample(TobiiResearchGazeData& out) const;
+
+	void updateStage(TrialPhase mode, int trialIndex);
+
 
 private:
+	int m_fixationTimeMs;
+	static constexpr int64_t kOriginUnset = (std::numeric_limits<int64_t>::min)();
+	std::atomic<int64_t> m_originUs{ kOriginUnset };
+	std::vector<std::string> gazeDataToRow(const TobiiResearchGazeData& g) const; // no longer static
+
 	static void gaze_data_callback(TobiiResearchGazeData* gaze_data, void* user_data);
 
-	void openCsvLog(const std::string& participantId, int participantAge, char participantGender,
-		int blockNumber, int sessionNumber, int groupNumber, const std::string& outputDirectory);
+	void openCsvLog(BlockInformation blockInfo);
 	void closeCsvLog();
 	void writerThreadMain();
-	static std::vector<std::string> gazeDataToRow(const TobiiResearchGazeData& g);
 
-	float gazePrecisionCm = 0.f;
-	float viewingDistanceCm = 0.f;
+	TrialPhase currentStage;
+	int currentTrialIndex;
 
-	// --- collected-sample buffer (only filled while collecting) ---
-	std::mutex m_mutex;
+	ExperimentInformation m_experimentInfo; 
+
+	//collected-sample buffer (only filled while collecting)
+	mutable std::mutex m_mutex;
 	bool m_collecting = false;
-	std::vector<TobiiResearchGazeData> m_samples;
+	RingBuffer<TobiiResearchGazeData> m_samples{ kSampleCapacity };
+	std::vector<TobiiResearchGazeData> m_trialSamples;
 
-	// --- gaze CSV log: written on its own thread so the Tobii SDK's
-	// callback thread never touches the filesystem ---
 	std::unique_ptr<CSV> m_csv;
 	std::thread m_writerThread;
 	std::atomic<bool> m_writerRunning{ false };
