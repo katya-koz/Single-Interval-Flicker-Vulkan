@@ -6,16 +6,22 @@
 #include <ctime>
 #include <iostream>
 
+
+//*
+// CSV utitlity class. Init CSV, write headers, write rows.
+// 
+// classes that own this utility are responsibile for thread managemnet 
+// (if CSV is to be written off thread) ie app.cpp or eyetracker.cpp
+// 
+// *//
+
 CSV::~CSV() {
     close();
 }
 
-bool CSV::init(const std::string& participantId, const int participantAge,
-    const char participantGender, const int blockNumber, const int sessionNumber,
-    const int groupNumber, const std::vector<std::string>& headers,
-    const std::string& outputDirectory, const std::string& tag) {
+bool CSV::init(BlockInformation blockInfo, const std::vector<std::string>& headers, bool hasMetadataHeader, const std::string& tag) {
 
-    fs::path outPath = buildPath(participantId, blockNumber, sessionNumber, groupNumber, outputDirectory, tag);
+    fs::path outPath = buildPath(blockInfo.participantID, blockInfo.block, blockInfo.sessionNumber, blockInfo.groupNumber, blockInfo.outputDirectory.string(), tag);
 
     m_file.open(outPath, std::ios::out | std::ios::trunc); // overwrite existing file of same name
     if (!m_file.is_open()) {
@@ -23,11 +29,13 @@ bool CSV::init(const std::string& participantId, const int participantAge,
         return false;
     }
 
-    // metadata
-    m_file << "# Age: " << participantAge << "\n";
-    m_file << "# Gender: " << participantGender << "\n";
-    m_file << "# Timestamp: " << getDateTimeString() << "\n";
-
+    if (hasMetadataHeader) {
+        // metadata, optional. default = false
+        m_file << "# Age: " << blockInfo.participantAge << "\n";
+        m_file << "# Gender: " << blockInfo.participantGender << "\n";
+        m_file << "# Timestamp: " << getDateTimeString() << "\n";
+    }
+   
     // column headers
     for (size_t i = 0; i < headers.size(); i++) {
         m_file << headers[i];
@@ -47,19 +55,19 @@ void CSV::writeRow(const std::vector<std::string>& fields) {
     for (size_t i = 0; i < fields.size(); i++) {
         // quote any field that contains a comma.. just for safety
         if (fields[i].find(',') != std::string::npos)
+        {
             m_file << "\"" << fields[i] << "\"";
+        }
         else
+        {
             m_file << fields[i];
+        }
 
         if (i < fields.size() - 1) m_file << ",";
     }
     m_file << "\n";
 
-    // Flush at most once a second -- flushing every row is unnecessary
-    // overhead at sampling rates like 120 Hz and can bottleneck the thread
-    // doing the writing. Worst case on an unclean shutdown you lose the
-    // last <1s of buffered rows; close() below flushes any remainder on a
-    // clean shutdown.
+    // flush at most once a second
     auto now = std::chrono::steady_clock::now();
     if (now - m_lastFlush >= m_flushInterval) {
         m_file.flush();
@@ -74,8 +82,7 @@ void CSV::close() {
     }
 }
 
-fs::path CSV::buildPath(const std::string& participantId, const int blockNumber, const int sessionNumber,
-    const int groupNumber, const std::string& outputDir, const std::string& tag) const {
+fs::path CSV::buildPath(const std::string& participantId, const int blockNumber, const int sessionNumber, const int groupNumber, const std::string& outputDir, const std::string& tag) const {
 
     fs::path dir = outputDir.empty() ? fs::current_path() : fs::path(outputDir);
 

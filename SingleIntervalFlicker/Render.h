@@ -15,6 +15,8 @@
 #include "tobii_research_eyetracker.h"
 #include "tobii_research_streams.h"
 #include "tobii_research.h"
+#include "FixationCoords.h"
+#include "TrialPhase.h"
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics;
@@ -57,6 +59,7 @@ public:
     // call before app destroys the window or releases shared resources
     void waitIdle();
 
+   
 
     DecodedImage decodeImageForUpload(TextureSlot slot, const std::string& path);
 
@@ -73,7 +76,7 @@ private:
         uint32_t width = 0;
         uint32_t height = 0;
     };
-
+    //void renderEyeTrackingDebug(VkCommandBuffer cmd, NormalizedGaze leftEye, NormalizedGaze rightEye);
 
     ////after opencv loads image (cpu intensive task, to be done on another thread)
     //struct DecodedImage {
@@ -94,12 +97,31 @@ private:
         uint32_t texSlot;
     };
 
+    //struct ErrorBoundaryPushConstants {
+    //    float centerX;
+    //    float centerY;
+    //    float radiusX;
+    //    float radiusY;
+    //};
+    //struct GazeDotPushConstants {
+//    float centerX;
+//    float centerY;
+//    float halfSizeX;
+//    float halfSizeY;
+//    float colorR;
+//    float colorG;
+//    float colorB;
+//    float colorA;
+//};
+
     struct FixationPointPushConstants {
         float centerX;
         float centerY;
         float halfSizeX;
         float halfSizeY;
     };
+
+
 
 
     // vulkan init chain
@@ -121,11 +143,15 @@ private:
     void createCommandBuffers();
     void createSyncObjects();
 
+
+    //void createErrorBoundaryPipeline();
+
+
     // per frame
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const FrameScene& scene);
     void drawQuad(VkCommandBuffer cmd, TextureSlot slot, float x0, float y0, float x1, float y1);
     void renderFixationPoint(VkCommandBuffer cmd, FixationCoordinates fixationCoords);
-
+   
     // texture helpers
     void uploadTextureData(Texture& tex, const void* pixels,
         VkFormat fmt, int w, int h);
@@ -152,11 +178,13 @@ private:
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& a);
     VkExtent2D chooseSwapExtent(GLFWwindow* window, const VkSurfaceCapabilitiesKHR& c);
 
+    //void renderErrorBoundary( VkCommandBuffer cmd, FixationCoordinates fixationCoords, float pixelError);
+
+
     // validation
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
-    void renderCalibrationTarget(VkCommandBuffer cmd, TobiiResearchNormalizedPoint2D target, float progress, int monitorWidth, int monitorHeight);
-
+    //void renderCalibrationTarget(VkCommandBuffer cmd, NormalizedPoint2D target, float progress, int monitorWidth, int monitorHeight);
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback( VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT*, void*);
 
 private:
@@ -195,12 +223,20 @@ private:
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pipeline = VK_NULL_HANDLE;
 
+    VkPipeline m_errorBoundaryPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_errorBoundaryLayout = VK_NULL_HANDLE;
+
     VkPipelineLayout m_fixationPointLayout = VK_NULL_HANDLE;
     VkPipeline m_fixationPointPipeline = VK_NULL_HANDLE;
 
     //vertex buffer (fixationPoint only)
     VkBuffer m_fixationPointVB = VK_NULL_HANDLE;
     VkDeviceMemory m_fixationPointVBMem = VK_NULL_HANDLE;
+
+
+    //VkPipeline m_gazeDotPipeline = VK_NULL_HANDLE;
+    //VkPipelineLayout m_gazeDotLayout = VK_NULL_HANDLE;
+    //void createGazeDotPipeline();
 
     // command pool
     VkCommandPool m_commandPool = VK_NULL_HANDLE;

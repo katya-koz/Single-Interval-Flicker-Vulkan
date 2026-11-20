@@ -7,33 +7,15 @@
 #include "utils.h"
 #include <thread>
 #define GLFW_INCLUDE_NONE
-#define DEBUG_MOUSE_GAZE
+//#define DEBUG_MOUSE_GAZE
 #include <GLFW/glfw3.h>
-
 #include <string>
 #include <vector>
 #include "EyeTracker.h"
+#include "DisplayInfo.h"
+#include "TrialPhase.h"
 
-// Opaque handle type from the Tobii Pro SDK (tobii_research.h). Only a pointer
-// to it is ever stored here, so a forward declaration is enough; App.h/App.cpp
-// don't need to include the Tobii headers just to hold the handle. (Remove this
-// line if EyeTracker.h already makes the type visible.)
-struct TobiiResearchEyeTracker;
-
-enum class TrialPhase {
-    StartInstructions,
-    ShowSideBySideImages,
-    ShowFullFieldImage,
-    ShowBuffer,
-    WaitForResponse,
-    Calibration,
-    Done
-};
-
-// Sub-state within TrialPhase::Calibration: show the target and let gaze
-// settle for CALIBRATION_SETTLE_TIME, then collect one sample at that point.
-enum class CalibrationStage { ShowTarget, Collecting };
-
+//struct TobiiResearchEyeTracker;
 
 struct TrialResult {
     std::string codec;
@@ -46,9 +28,12 @@ struct TrialResult {
     int positionY_R;
     std::string viewingMode;
     int response;
+    int imageIndex;
     int reactionTimeMS;
 
 };
+
+
 
 class App {
 public:
@@ -70,7 +55,9 @@ private:
     void showBuffer();
     void showNextImageInTrial();
     std::thread m_decodeThread;
-
+    bool addedRetrialForCurrentTrial = false;
+    int m_maxFixationMs;
+    bool isMaxFixation = false; 
 
     // translate current phase + flicker state into a scene description
     // so that the renderer can draw
@@ -78,9 +65,9 @@ private:
 
     // wrap the renderer to load textures
     void loadInstructionsTextures();
-    void loadTexturesForTrial(const ImagePaths& img);
+    void loadTexturesForTrial(const TrialInformation& img);
 
-    void decodeImagesForTrial(const ImagePaths& img);
+    void decodeImagesForTrial(const TrialInformation& img);
     void decodeImageForUpload(TextureSlot slot, const std::string& path);
     void uploadDecodedTexture(TextureSlot slot);
     void uploadDecodedTextures();
@@ -88,27 +75,20 @@ private:
     static void keyCallback(GLFWwindow*, int, int, int, int);
     static void framebufferSizeCallback(GLFWwindow*, int, int) {} // unused
 
-private:
+    DisplayInfo m_displayInfo;
+
+    void updateEyeTrackerStage();
+   
     EyeTracker m_eyetracker;
     TobiiResearchEyeTracker* m_tobiiHandle = nullptr; // set once during init() from tobii_research_find_all_eyetrackers
-
-    // calibration state (was previously a set of globals in App.cpp — moved
-    // here so it's scoped to the App instance like everything else)
-    std::vector<NormalizedPoint2D> m_calibrationPoints = {
-        {0.5f, 0.5f}, {0.1f, 0.1f}, {0.9f, 0.1f}, {0.1f, 0.9f}, {0.9f, 0.9f}
-    };
-    size_t m_calibrationIndex = 0;
-    CalibrationStage m_calibrationStage = CalibrationStage::ShowTarget;
-    static constexpr double CALIBRATION_SETTLE_TIME = 0.8; // seconds to let gaze settle on target before sampling
-
+    bool bypassGaze = false;
+  
     GLFWwindow* m_window = nullptr;
-    int m_monitorWidth = 0;
-    int m_monitorHeight = 0;
 
+    
     Renderer m_renderer; // backend renderer
     Config m_config;
     int m_trialIndex = 0;
-    int m_physicalMonitorWidth, m_physicalMonitorHeight;
     // used when in two interval mode. tracks whether 
     // the first or second image within a trial has been shown. 0 or 1
     int m_interTrialImageIndex = 0;
@@ -130,7 +110,6 @@ private:
     bool   m_flickerShow = false;
 
     double m_flickerInterval = 0; // how long to show image before flickering 
-
     // gamepad edge detection
     bool m_prevGamepadA = false;
     bool m_prevGamepadLeft = false;
