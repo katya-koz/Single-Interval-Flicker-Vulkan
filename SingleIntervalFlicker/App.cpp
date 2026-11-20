@@ -534,11 +534,11 @@ void App::recordResponse(int key) {
     // calculate eye tracking statistics
 
     if (m_config.experimentInfo.isEyeTracking) {
-        Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
-            //m_eyetracker.getCorrectedTrialSamples(), // make sure to use only the samples collected during the trials... ** drift correction
-            m_eyetracker.getTrialSamples(),
-            m_displayInfo
-        );
+        //Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
+        //    //m_eyetracker.getCorrectedTrialSamples(), // make sure to use only the samples collected during the trials... ** drift correction
+        //    m_eyetracker.getTrialSamples(),
+        //    m_displayInfo
+        //);
 
         m_eyetracker.clearSamples();
         m_csv.writeRow(
