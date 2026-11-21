@@ -58,6 +58,7 @@ private:
     bool addedRetrialForCurrentTrial = false;
     int m_maxFixationMs;
     bool isMaxFixation = false; 
+
     // translate current phase + flicker state into a scene description
     // so that the renderer can draw
     FrameScene buildScene() const;

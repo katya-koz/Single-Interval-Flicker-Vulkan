@@ -154,8 +154,7 @@
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);opencv_world4120.lib;glfw3.lib;vulkan-1.lib;shaderc_combined.lib;tobii_research.lib;</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /E /I /Y "$(ProjectDir)assets" "$(OutDir)assets"
-copy /Y "C:\tobiiSDK\64\lib\tobii_research.dll" "$(OutDir)tobii_research.dll"</Command>
+      <Command>xcopy /E /I /Y "$(ProjectDir)assets" "$(OutDir)assets" &amp;&amp; copy /Y "$(Tobii_Path)\lib\tobii_research.dll" "$(OutDir)tobii_research.dll"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -170,14 +169,19 @@ copy /Y "C:\tobiiSDK\64\lib\tobii_research.dll" "$(OutDir)tobii_research.dll"</C
     <ClInclude Include="App.h" />
     <ClInclude Include="Config.h" />
     <ClInclude Include="csv.h" />
+    <ClInclude Include="DisplayInfo.h" />
     <ClInclude Include="EyeTracker.h" />
+    <ClInclude Include="TrialPhase.h" />
     <ClInclude Include="Render.h" />
     <ClInclude Include="RenderTypes.h" />
+    <ClInclude Include="RingBuffer.h" />
     <ClInclude Include="Shaders.h" />
+    <ClInclude Include="TrialInformation.h" />
     <ClInclude Include="Utils.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="config.json" />
+    <None Include="FixationCoords.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="SingleIntervalFlicker.rc" />

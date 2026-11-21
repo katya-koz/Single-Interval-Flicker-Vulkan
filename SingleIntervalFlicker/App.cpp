@@ -132,14 +132,14 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
             "Duration",
             "Subject",
 
-            "Mean Gaze X (Left)",
-            "Mean Gaze Y (Left)",
-            "Mean Gaze X (Right)",
-            "Mean Gaze Y (Right)",
-            "Std. Dev. Gaze X (Left)",
-            "Std. Dev. Gaze Y (Left)",
-            "Std. Dev. Gaze X (Right)",
-            "Std. Dev. Gaze Y (Right)",
+            //"Mean Gaze X (Left)",
+            //"Mean Gaze Y (Left)",
+            //"Mean Gaze X (Right)",
+            //"Mean Gaze Y (Right)",
+            //"Std. Dev. Gaze X (Left)",
+            //"Std. Dev. Gaze Y (Left)",
+            //"Std. Dev. Gaze X (Right)",
+            //"Std. Dev. Gaze Y (Right)",
 
             "Fixation Window (ms)",
             "Max Mean Position (pixels)",
@@ -176,6 +176,7 @@ bool App::init(const std::string& configPath, std::string& inputPath) {
 
     if (m_config.experimentInfo.isEyeTracking) {
         m_eyetracker.updateStage(TrialPhase::StartInstructions, -1);
+        m_eyetracker.updateEventNumber(-1); // start instructions ar enot a trial and therefore don't have an applicable event number
     }
 
     m_phaseStart = glfwGetTime();
@@ -295,7 +296,6 @@ void App::initGame() {
         //m_driftCaptureRequested = false;
         //m_phase = TrialPhase::DriftCheck;
     }
-   
     m_phase = TrialPhase::ShowBuffer;
     updateEyeTrackerStage();
     m_phaseStart = glfwGetTime();
@@ -420,6 +420,36 @@ void App::updateEyeTrackerStage() {
 //    }
 //}
 
+/// <summary>
+/// Update the stage every time the phase changes (fixation, stim, start, done, wait for response... )
+/// </summary>
+void App::updateEyeTrackerStage() {
+
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.updateStage(m_phase, m_trialIndex);
+        if (m_phase != TrialPhase::ShowBuffer && m_phase != TrialPhase::ShowFlickerImage && m_phase != TrialPhase::ShowImage) {
+            // any other phase is not part of a trial, and should therefore not have an event number attached to it
+            m_eyetracker.updateEventNumber(-1);
+        }
+        else {
+            m_eyetracker.updateEventNumber(m_interTrialImageIndex);
+        }
+       
+    }
+}
+//
+//void App::clearEyeTrackingSamples() {
+//    if (m_config.experimentInfo.isEyeTracking) {
+//        m_eyetracker.updateStage(m_phase, m_trialIndex);
+//    }
+//
+//};
+//void App::setEyeTrackingTimeStart() {
+//    if (m_config.experimentInfo.isEyeTracking) {
+//        m_eyetracker.updateStage(m_phase, m_trialIndex);
+//    }
+//}
+
 
 void App::showBuffer() {
     m_phase = TrialPhase::ShowBuffer;
@@ -522,11 +552,11 @@ void App::recordResponse(int key) {
     // calculate eye tracking statistics
 
     if (m_config.experimentInfo.isEyeTracking) {
-        Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
-            //m_eyetracker.getCorrectedTrialSamples(), // make sure to use only the samples collected during the trials... ** drift correction
-            m_eyetracker.getTrialSamples(),
-            m_displayInfo
-        );
+        //Utils::GazeStatistics gazeStats = Utils::calculateGazeStatistics(
+        //    //m_eyetracker.getCorrectedTrialSamples(), // make sure to use only the samples collected during the trials... ** drift correction
+        //    m_eyetracker.getTrialSamples(),
+        //    m_displayInfo
+        //);
 
         m_eyetracker.clearSamples();
         m_csv.writeRow(
@@ -547,14 +577,14 @@ void App::recordResponse(int key) {
                 m_config.blockInfo.participantID,
 
                 // gaze statistics from samples collected during images shown
-                std::to_string(gazeStats.leftMean_X),
-                std::to_string(gazeStats.leftMean_Y),
-                std::to_string(gazeStats.rightMean_X),
-                std::to_string(gazeStats.rightMean_Y),
-                std::to_string(gazeStats.leftStdDev_X),
-                std::to_string(gazeStats.leftStdDev_Y),
-                std::to_string(gazeStats.rightStdDev_X),
-                std::to_string(gazeStats.rightStdDev_Y),
+                //std::to_string(gazeStats.leftMean_X),
+                //std::to_string(gazeStats.leftMean_Y),
+                //std::to_string(gazeStats.rightMean_X),
+                //std::to_string(gazeStats.rightMean_Y),
+                //std::to_string(gazeStats.leftStdDev_X),
+                //std::to_string(gazeStats.leftStdDev_Y),
+                //std::to_string(gazeStats.rightStdDev_X),
+                //std::to_string(gazeStats.rightStdDev_Y),
 
                 std::to_string(m_config.experimentInfo.fixationTimeMs),                                                // fixation time window in MS
                 std::to_string(m_config.trials[m_trialIndex].maxMeanPositionPixels),                // max mean posiiton (pixels)
@@ -589,9 +619,9 @@ void App::recordResponse(int key) {
                 "-1",
                 "-1",
                 "-1",
-                "-1",
-                "-1",
-                "-1"
+                //"-1",
+                //"-1",
+                //"-1"
             });
     }
     if (m_decodeThread.joinable()) {
@@ -618,7 +648,6 @@ void App::recordResponse(int key) {
     }
 
     showBuffer();
-  
 
     m_phaseStart = glfwGetTime();
     m_responseStart = m_phaseStart;

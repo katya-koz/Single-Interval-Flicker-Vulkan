@@ -68,9 +68,25 @@ void EyeTracker::markExperimentStart() {
 
 void EyeTracker::openCsvLog(BlockInformation blockInfo) {
 
-    static const std::vector<std::string> gazeHeaders = { "system_time_stamp", "device_time_stamp", "left_gaze_x", "left_gaze_y",
-        "left_gaze_valid", "left_pupil_diameter", "left_pupil_valid", "right_gaze_x", "right_gaze_y", "right_gaze_valid", "right_pupil_diameter",
-        "right_pupil_valid", "current_stage", "current_stage_name", "trial index","experiment_time_s" };
+    static const std::vector<std::string> gazeHeaders = { 
+        "system_time_stamp",
+        "device_time_stamp",
+        "left_gaze_x",
+        "left_gaze_y",
+        "left_gaze_valid",
+        "left_pupil_diameter",
+        "left_pupil_valid", 
+        "right_gaze_x", 
+        "right_gaze_y", 
+        "right_gaze_valid", 
+        "right_pupil_diameter",
+        "right_pupil_valid",
+        "current_stage",
+        "current_stage_name",
+        "trial index",
+        "experiment_time_s",
+        "event_number" // either 0 or 1 (stim 0/1 or fixation 0/1. -1 if not applicable to current phase)
+    };
 
     m_csv = std::make_unique<CSV>();
     m_csv->init(blockInfo, gazeHeaders, false, "gaze"); // has metadata header = false, tag = "gaze"
@@ -139,13 +155,26 @@ std::vector<std::string> EyeTracker::gazeDataToRow(const TobiiResearchGazeData& 
         std::to_string(static_cast<int>(currentStage)),   // integer value
         std::string(stageToString(currentStage)),         // name
         std::to_string(currentTrialIndex),
-        expTime 
+        expTime,
+        std::to_string(currentEventNumber),
     };
 }
 
 void EyeTracker::updateStage(TrialPhase stage, int trialIndex) {
     currentStage = stage;
     currentTrialIndex = trialIndex;
+}
+
+/// <summary>
+/// Event number signifies if this is the 1st or 2nd stim/fixation within the trial.
+/// 0 - first
+/// 1 - second
+/// -1 - not applicable to current phase
+/// </summary>
+/// <param name="eventNumber"></param>
+/// 
+void EyeTracker::updateEventNumber(int eventNumber) {
+    currentEventNumber = eventNumber;
 }
 
 void EyeTracker::start(TobiiResearchEyeTracker* eyetracker) {

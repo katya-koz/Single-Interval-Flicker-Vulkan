@@ -62,7 +62,7 @@ public:
 	void clearSamples();
 
 	static constexpr size_t kGazeHz = 120;
-	static constexpr size_t kFixationWindowSec = 3;
+	static constexpr size_t kFixationWindowSec = 3; // this is somewhat arbirtrary, but 3 s is plenty of time to fixate
 	static constexpr size_t kSampleCapacity = kGazeHz * kFixationWindowSec;
 
 	void markExperimentStart();   // defines t = 0 for the gaze log
@@ -71,6 +71,7 @@ public:
 	bool getLatestSample(TobiiResearchGazeData& out) const;
 
 	void updateStage(TrialPhase mode, int trialIndex);
+	void updateEventNumber(int eventNumber);
 
 
 private:
@@ -87,6 +88,7 @@ private:
 
 	TrialPhase currentStage;
 	int currentTrialIndex;
+	int currentEventNumber = -1; 
 
 	ExperimentInformation m_experimentInfo; 
 
