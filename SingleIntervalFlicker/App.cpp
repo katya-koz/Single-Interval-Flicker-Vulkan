@@ -401,6 +401,24 @@ void App::advancePhase() {
         m_decodeThread = std::thread(&App::decodeImagesForTrial, this, m_config.trials[m_trialIndex + 1]);
     }
 }
+void App::updateEyeTrackerStage() {
+
+    if (m_config.experimentInfo.isEyeTracking) {
+        m_eyetracker.updateStage(m_phase, m_trialIndex);
+    }
+}
+//
+//void App::clearEyeTrackingSamples() {
+//    if (m_config.experimentInfo.isEyeTracking) {
+//        m_eyetracker.updateStage(m_phase, m_trialIndex);
+//    }
+//
+//};
+//void App::setEyeTrackingTimeStart() {
+//    if (m_config.experimentInfo.isEyeTracking) {
+//        m_eyetracker.updateStage(m_phase, m_trialIndex);
+//    }
+//}
 
 /// <summary>
 /// Update the stage every time the phase changes (fixation, stim, start, done, wait for response... )
