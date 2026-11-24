@@ -208,7 +208,10 @@ std::vector<TobiiResearchGazeData> EyeTracker::getTrialSamples() const{
 
     return m_trialSamples;
 }
-bool EyeTracker::gazeWithinError(double maxPixelMeanPosition, double maxPixelSpread, FixationCoordinates fixationCoords)
+bool EyeTracker::gazeWithinError(double maxPixelMeanPosition, double maxPixelSpread, 
+    FixationCoordinates fixationCoords, 
+    FixationStats* fixationStats,
+    int trialIndex) // we pass the trial info to write the last successful fixation window
 {
     //// logging config
     //constexpr bool kLogging = true;
@@ -321,6 +324,11 @@ bool EyeTracker::gazeWithinError(double maxPixelMeanPosition, double maxPixelSpr
 
     const bool pass = distOk && leftOk && rightOk;
 
+
+
+
+
+
     //log(std::format(
     //    "{} | n={} | midMean=({:.1f}, {:.1f}) fixMid=({:.1f}, {:.1f}) | "
     //    "dist={:.1f} / max {:.1f} [{}] | "
@@ -331,6 +339,24 @@ bool EyeTracker::gazeWithinError(double maxPixelMeanPosition, double maxPixelSpr
     //    left.maxDev, left.sd, leftOk ? "ok" : "OUTLIER",
     //    right.maxDev, right.sd, rightOk ? "ok" : "OUTLIER",
     //    maxPixelSpread));
+
+    if (fixationStats != nullptr)
+    {
+        FixationWindow* fixation = nullptr;
+
+        if (trialIndex == 0)
+            fixation = &fixationStats->fixation1;
+        else if (trialIndex == 1)
+            fixation = &fixationStats->fixation2;
+
+        if (fixation != nullptr)
+        {
+            fixation->meanDistance = meanDist;
+
+            fixation->spread.L = left.maxDev;
+            fixation->spread.R = right.maxDev;
+        }
+    }
 
     return pass;
 }

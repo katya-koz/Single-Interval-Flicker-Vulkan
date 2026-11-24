@@ -18,6 +18,7 @@
 #include "DisplayInfo.h"
 #include "Config.h"
 #include "TrialPhase.h"
+#include "Config.h"
 
 
 struct GazeOffset {
@@ -25,18 +26,18 @@ struct GazeOffset {
 	bool lValid = false, rValid = false;
 };
 
-
-struct FixationStats { // stats for fixation window 
-	int timeWindowMS;
-	float meanPositionDistance_0_L;
-	float meanPositionDistance_0_R;
-	float meanPositionDistance_1_L;
-	float meanPositionDistance_1_R;
-	float stdDev_0_L;
-	float stdDev_0_R;
-	float stdDev_1_L;
-	float stdDev_1_R;
-};
+//
+//struct FixationStats { // stats for fixation window 
+//	int timeWindowMS;
+//	float meanPositionDistance_0_L;
+//	float meanPositionDistance_0_R;
+//	float meanPositionDistance_1_L;
+//	float meanPositionDistance_1_R;
+//	float stdDev_0_L;
+//	float stdDev_0_R;
+//	float stdDev_1_L;
+//	float stdDev_1_R;
+//};
 
 class EyeTracker {
 
@@ -67,7 +68,7 @@ public:
 
 	void markExperimentStart();   // defines t = 0 for the gaze log
 
-	bool gazeWithinError(double maxPixelMeanPosition, double maxPixelSpread, FixationCoordinates fixationCoords);
+	bool gazeWithinError(double maxPixelMeanPosition, double maxPixelSpread, FixationCoordinates fixationCoords, FixationStats* trial, int trialIndex);
 	bool getLatestSample(TobiiResearchGazeData& out) const;
 
 	void updateStage(TrialPhase mode, int trialIndex);

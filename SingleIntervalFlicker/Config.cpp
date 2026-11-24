@@ -198,7 +198,7 @@ bool Config::loadTrials(const std::string& inputPath, DisplayInfo displayInfo) {
         if (trim(line).empty() || lineNumber <= 11) continue; // skip the header block
        
         std::vector<std::string> fields = splitCSVLine(line);
-        if (fields.size() < 10) { // ensure all header columns are present
+        if (fields.size() < 12) { // ensure all header columns are present
             std::string msg = "[Config] Malformed trials.csv line " + std::to_string(lineNumber) + ": " + line;
             Utils::FatalError(msg);
             continue;
