@@ -1,6 +1,6 @@
 # Single Interval Flicker Experiment
 
-This project is the implementation of an ISO Flicker Paradigm experiment using Vulkan integrated with Tobii Eye Tracker (Fusion Pro) @120Hz. The render engine is suited for a Wheatstone stereoscope set up. Custom stereoscopic calibration (records calibration points, basic GUI) software is available here: https://github.com/katya-koz/stereoscopic-calibration.
+This project is the implementation of an ISO Flicker Paradigm experiment using Vulkan integrated with Tobii Eye Tracker (Fusion Pro) @120Hz. The render engine is suited for a Wheatstone stereoscope set up. Custom stereoscopic calibration (records calibration points, basic GUI) software is available here: https://github.com/katya-koz/stereoscopic-calibration. Or use https://github.com/katya-koz/window-mirror to mirror the Tobii Eye Tracking Manager + duplicate screen to calibrate for stereoscope.
 
 ## Installation & Setup Instructions
 
