@@ -54,6 +54,7 @@ private:
     void pollGamepad();
     void showBuffer();
     void showNextImageInTrial();
+    void skipTrial();
     std::thread m_decodeThread;
     bool addedRetrialForCurrentTrial = false;
     int m_maxFixationMs;

@@ -27,6 +27,22 @@ struct ExperimentInformation {
 };
 
 
+
+struct EyeSpread {
+    double L = -1.0;
+    double R = -1.0;
+};
+
+struct FixationWindow {
+    double meanDistance = -1.0; // Distance from target fixation midpoint (pixels)
+    EyeSpread spread;
+};
+
+struct FixationStats {
+    FixationWindow fixation1;
+    FixationWindow fixation2;
+};
+
 // holds the 4 permuations per image and  
 // all information for current trial including max spread,
 // fixation coords and max mean position
@@ -51,7 +67,7 @@ struct TrialInformation {
     double maxMeanPositionPixels;
     double maxSpreadPixels;
 
-   
+    FixationStats fixationStats;
 };
 
 struct BlockInformation {
