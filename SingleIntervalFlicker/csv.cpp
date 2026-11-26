@@ -6,35 +6,44 @@
 #include <ctime>
 #include <iostream>
 
+
+//*
+// CSV utitlity class. Init CSV, write headers, write rows.
+// 
+// classes that own this utility are responsibile for thread managemnet 
+// (if CSV is to be written off thread) ie app.cpp or eyetracker.cpp
+// 
+// *//
+
 CSV::~CSV() {
     close();
 }
 
-bool CSV::init(const std::string& participantId, const std::string& participantAge, const std::string& participantGender, const std::string& experimentName,  const std::vector<std::string>& headers, const std::string& outputDirectory = "") {
-    
-    fs::path outPath = buildPath(participantId, experimentName, outputDirectory);
+bool CSV::init(BlockInformation blockInfo, const std::vector<std::string>& headers, bool hasMetadataHeader, const std::string& tag) {
 
-    m_file.open(outPath);
+    fs::path outPath = buildPath(blockInfo.participantID, blockInfo.block, blockInfo.sessionNumber, blockInfo.groupNumber, blockInfo.outputDirectory.string(), tag);
+
+    m_file.open(outPath, std::ios::out | std::ios::trunc); // overwrite existing file of same name
     if (!m_file.is_open()) {
         Utils::FatalError("[CSV] Failed to open file: " + outPath.string());
         return false;
     }
 
-    // metadata
-    m_file << "Experiment: " << experimentName << "\n";
-    m_file << "Participant ID: " << participantId << "\n";
-    m_file << "Participant Age: " << participantAge << "\n";
-    m_file << "Participant Gender: " << participantGender << "\n";
-    m_file << "Start Time: " << getDateTimeString() << "\n";
-    m_file << "\n";
-
+    if (hasMetadataHeader) {
+        // metadata, optional. default = false
+        m_file << "# Age: " << blockInfo.participantAge << "\n";
+        m_file << "# Gender: " << blockInfo.participantGender << "\n";
+        m_file << "# Timestamp: " << getDateTimeString() << "\n";
+    }
+   
     // column headers
-    for (int i = 0; i < headers.size(); i++) {
+    for (size_t i = 0; i < headers.size(); i++) {
         m_file << headers[i];
         if (i < headers.size() - 1) m_file << ",";
     }
     m_file << "\n";
     m_file.flush();
+    m_lastFlush = std::chrono::steady_clock::now();
 
     std::cout << "[CSV] Opened: " << outPath.string() << "\n";
     return true;
@@ -43,57 +52,53 @@ bool CSV::init(const std::string& participantId, const std::string& participantA
 void CSV::writeRow(const std::vector<std::string>& fields) {
     if (!m_file.is_open()) return;
 
-    for (int i = 0; i < fields.size(); i++) {
-        // quote any field that contains a comma
+    for (size_t i = 0; i < fields.size(); i++) {
+        // quote any field that contains a comma.. just for safety
         if (fields[i].find(',') != std::string::npos)
+        {
             m_file << "\"" << fields[i] << "\"";
+        }
         else
+        {
             m_file << fields[i];
+        }
 
         if (i < fields.size() - 1) m_file << ",";
     }
     m_file << "\n";
-    m_file.flush();
+
+    // flush at most once a second
+    auto now = std::chrono::steady_clock::now();
+    if (now - m_lastFlush >= m_flushInterval) {
+        m_file.flush();
+        m_lastFlush = now;
+    }
 }
 
 void CSV::close() {
-    if (m_file.is_open()) m_file.close();
+    if (m_file.is_open()) {
+        m_file.flush();
+        m_file.close();
+    }
 }
 
-fs::path CSV::buildPath(const std::string& participantId, const std::string& experimentName, const std::string& outputDir) const {
+fs::path CSV::buildPath(const std::string& participantId, const int blockNumber, const int sessionNumber, const int groupNumber, const std::string& outputDir, const std::string& tag) const {
+
     fs::path dir = outputDir.empty() ? fs::current_path() : fs::path(outputDir);
 
-    // create the directory if it doesn't exist
     if (!fs::exists(dir)) {
         fs::create_directories(dir);
     }
-    // sanitize for file names
-    std::string sanitizedExperimentName = experimentName;
-    std::replace(sanitizedExperimentName.begin(), sanitizedExperimentName.end(), ' ', '-');
 
-    std::string base = sanitizedExperimentName +  "_" + participantId + "_" + getDateString();
-    int counter = 0;
-    fs::path outPath;
+    std::string base =
+        "G" + std::to_string(groupNumber) + "_" +
+        participantId + "_" +
+        "S" + std::to_string(sessionNumber) + "_" +
+        "B" + std::to_string(blockNumber) +
+        (tag.empty() ? "" : ("_" + tag)) +
+        ".csv";
 
-    do {
-        outPath = dir / (base + "_" + std::to_string(counter) + ".csv");
-        counter++;
-    } while (fs::exists(outPath));
-
-    return outPath;
-}
-
-std::string CSV::getDateString() const {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-
-    std::tm tm;
-
-    localtime_s(&tm, &t);
-
-    std::ostringstream ss;
-    ss << std::put_time(&tm, "%Y-%m-%d");
-    return ss.str();
+    return dir / base;
 }
 
 std::string CSV::getDateTimeString() const {
@@ -105,6 +110,6 @@ std::string CSV::getDateTimeString() const {
     localtime_s(&tm, &t);
 
     std::ostringstream ss;
-    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+    ss << std::put_time(&tm, "%Y-%m-%d_%H-%M-%S");
     return ss.str();
 }

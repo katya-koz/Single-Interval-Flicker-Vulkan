@@ -12,6 +12,12 @@
 #include <string>
 #include <vector>
 
+#include "tobii_research_eyetracker.h"
+#include "tobii_research_streams.h"
+#include "tobii_research.h"
+#include "FixationCoords.h"
+#include "TrialPhase.h"
+
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics;
     std::optional<uint32_t> present;
@@ -43,15 +49,22 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
  
-    bool init(GLFWwindow* window, int monitorWidth, int monitorHeight);
+    bool init(GLFWwindow* window, int monitorWidth, int monitorHeight, int displayMode);
  
-    void uploadTexture(TextureSlot slot, const std::string& path);
+    void decodeAndUploadTexture(TextureSlot slot, const std::string& path);
 
     // render & present 1 frame. blocks on vsync (FIFO)
     void drawFrame(const FrameScene& scene);
 
     // call before app destroys the window or releases shared resources
     void waitIdle();
+
+   
+
+    DecodedImage decodeImageForUpload(TextureSlot slot, const std::string& path);
+
+    //// GPU only. can only be called from main renderer thread
+    void uploadDecodedTexture(TextureSlot slot);
 
 private:
     //  per slot texture resourcess
@@ -63,6 +76,20 @@ private:
         uint32_t width = 0;
         uint32_t height = 0;
     };
+    //void renderEyeTrackingDebug(VkCommandBuffer cmd, NormalizedGaze leftEye, NormalizedGaze rightEye);
+
+    ////after opencv loads image (cpu intensive task, to be done on another thread)
+    //struct DecodedImage {
+    //    std::vector<uint8_t> pixels;
+    //    VkFormat format = VK_FORMAT_UNDEFINED;
+    //    int width = 0;
+    //    int height = 0;
+    //};
+
+    //// CPU decoding step (can be called from any thread)
+    //// this is expensive
+    // writes to app memory when completed
+    
 
     // push constants for the quad pipeline
     struct QuadPushConstants {
@@ -70,9 +97,31 @@ private:
         uint32_t texSlot;
     };
 
-    struct CrosshairPushConstants {
-        float aspect;
+    //struct ErrorBoundaryPushConstants {
+    //    float centerX;
+    //    float centerY;
+    //    float radiusX;
+    //    float radiusY;
+    //};
+    //struct GazeDotPushConstants {
+//    float centerX;
+//    float centerY;
+//    float halfSizeX;
+//    float halfSizeY;
+//    float colorR;
+//    float colorG;
+//    float colorB;
+//    float colorA;
+//};
+
+    struct FixationPointPushConstants {
+        float centerX;
+        float centerY;
+        float halfSizeX;
+        float halfSizeY;
     };
+
+
 
 
     // vulkan init chain
@@ -87,18 +136,22 @@ private:
     void createDescriptorSetLayout();
     void allocateDescriptorPool();
     void createGraphicsPipeline();
-    void createCrosshairPipeline();
+    void createFixationPointPipeline();
     void createFramebuffers();
-    void createCrosshairVertexBuffer();
+    void createFixationPointVertexBuffer();
     void createCommandPool();
     void createCommandBuffers();
     void createSyncObjects();
 
+
+    //void createErrorBoundaryPipeline();
+
+
     // per frame
     void recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, const FrameScene& scene);
     void drawQuad(VkCommandBuffer cmd, TextureSlot slot, float x0, float y0, float x1, float y1);
-    void renderCrosshair(VkCommandBuffer cmd);
-
+    void renderFixationPoint(VkCommandBuffer cmd, FixationCoordinates fixationCoords);
+   
     // texture helpers
     void uploadTextureData(Texture& tex, const void* pixels,
         VkFormat fmt, int w, int h);
@@ -125,16 +178,24 @@ private:
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& a);
     VkExtent2D chooseSwapExtent(GLFWwindow* window, const VkSurfaceCapabilitiesKHR& c);
 
+    //void renderErrorBoundary( VkCommandBuffer cmd, FixationCoordinates fixationCoords, float pixelError);
+
+
     // validation
     bool checkValidationLayerSupport();
     std::vector<const char*> getRequiredExtensions();
-
+    //void renderCalibrationTarget(VkCommandBuffer cmd, NormalizedPoint2D target, float progress, int monitorWidth, int monitorHeight);
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback( VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT*, void*);
 
 private:
     // size of ONE monitor
     int m_monitorWidth = 0;
     int m_monitorHeight = 0;
+
+    // config if in sdr/hdr mode
+    bool m_isHDR = false;
+
+    bool m_next_trial_textures_loaded = false;
 
     // core vulkan objs
     VkInstance m_instance = VK_NULL_HANDLE;
@@ -162,12 +223,20 @@ private:
     VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
     VkPipeline m_pipeline = VK_NULL_HANDLE;
 
-    VkPipelineLayout m_crosshairLayout = VK_NULL_HANDLE;
-    VkPipeline m_crosshairPipeline = VK_NULL_HANDLE;
+    VkPipeline m_errorBoundaryPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout m_errorBoundaryLayout = VK_NULL_HANDLE;
 
-    //vertex buffer (crosshair only)
-    VkBuffer m_crosshairVB = VK_NULL_HANDLE;
-    VkDeviceMemory m_crosshairVBMem = VK_NULL_HANDLE;
+    VkPipelineLayout m_fixationPointLayout = VK_NULL_HANDLE;
+    VkPipeline m_fixationPointPipeline = VK_NULL_HANDLE;
+
+    //vertex buffer (fixationPoint only)
+    VkBuffer m_fixationPointVB = VK_NULL_HANDLE;
+    VkDeviceMemory m_fixationPointVBMem = VK_NULL_HANDLE;
+
+
+    //VkPipeline m_gazeDotPipeline = VK_NULL_HANDLE;
+    //VkPipelineLayout m_gazeDotLayout = VK_NULL_HANDLE;
+    //void createGazeDotPipeline();
 
     // command pool
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
@@ -183,4 +252,6 @@ private:
     VkDescriptorPool m_descPool = VK_NULL_HANDLE;
     std::array<VkDescriptorSet, MAX_TEXTURES> m_descSets{};
     std::array<Texture, MAX_TEXTURES> m_textures{};
+
+    std::array<DecodedImage, MAX_TEXTURES> m_decodedImages{};
 };

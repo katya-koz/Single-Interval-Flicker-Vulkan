@@ -9,6 +9,9 @@
 #include <iostream>
 #include <set>
 #include <stdexcept>
+#include <thread>
+
+
 
 // validation layers for debug builds
 #ifdef NDEBUG
@@ -37,29 +40,34 @@ static const std::vector<const char*> VALIDATION_LAYERS = {
 // ensure that the GPU supports swapchains and HDR metadata
 static const std::vector<const char*> DEVICE_EXTENSIONS = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_EXT_HDR_METADATA_EXTENSION_NAME,
+    //VK_EXT_HDR_METADATA_EXTENSION_NAME, no longer needed
 };
 
-// crosshair geometry (t -> thickness, s -> size/ half length)
-static constexpr float CROSSHAIR_T = 0.001f;
-static constexpr float CROSSHAIR_S = 0.02f;
+// fixationPoint geometry (61x61 px, 5px thick)
+static constexpr float CROSSHAIR_SIZE_PX = 61.0f;
+static constexpr float CROSSHAIR_THICKNESS_PX = 5.0f;
+
+static constexpr float CROSSHAIR_HALF_THICKNESS_RATIO = CROSSHAIR_THICKNESS_PX / CROSSHAIR_SIZE_PX;
 
 // these vertices define the shape of the cross hair
 static const float CROSSHAIR_VERTS[] = {
-    // horizontal bar (left monitor only, indices 0-5)
-    -CROSSHAIR_S, -CROSSHAIR_T,
-     CROSSHAIR_S, -CROSSHAIR_T,
-     CROSSHAIR_S,  CROSSHAIR_T,
-    -CROSSHAIR_S, -CROSSHAIR_T,
-     CROSSHAIR_S,  CROSSHAIR_T,
-    -CROSSHAIR_S,  CROSSHAIR_T,
-    // vertical bar (right monitor only, indices 6-11)
-    -CROSSHAIR_T, -CROSSHAIR_S,
-     CROSSHAIR_T, -CROSSHAIR_S,
-     CROSSHAIR_T,  CROSSHAIR_S,
-    -CROSSHAIR_T, -CROSSHAIR_S,
-     CROSSHAIR_T,  CROSSHAIR_S,
-    -CROSSHAIR_T,  CROSSHAIR_S,
+    // horizontal
+    -1.0f, -CROSSHAIR_HALF_THICKNESS_RATIO,
+     1.0f, -CROSSHAIR_HALF_THICKNESS_RATIO,
+     1.0f,  CROSSHAIR_HALF_THICKNESS_RATIO,
+
+    -1.0f, -CROSSHAIR_HALF_THICKNESS_RATIO,
+     1.0f,  CROSSHAIR_HALF_THICKNESS_RATIO,
+    -1.0f,  CROSSHAIR_HALF_THICKNESS_RATIO,
+
+    // vertical
+    -CROSSHAIR_HALF_THICKNESS_RATIO, -1.0f,
+     CROSSHAIR_HALF_THICKNESS_RATIO, -1.0f,
+     CROSSHAIR_HALF_THICKNESS_RATIO,  1.0f,
+
+    -CROSSHAIR_HALF_THICKNESS_RATIO, -1.0f,
+     CROSSHAIR_HALF_THICKNESS_RATIO,  1.0f,
+    -CROSSHAIR_HALF_THICKNESS_RATIO,  1.0f,
 };
 
 /// <summary>
@@ -77,16 +85,19 @@ Renderer::~Renderer() {
         if (m_inFlightFences[i]) vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
     }
 
-    if (m_crosshairVB) vkDestroyBuffer(m_device, m_crosshairVB, nullptr);
-    if (m_crosshairVBMem) vkFreeMemory(m_device, m_crosshairVBMem, nullptr);
+    if (m_fixationPointVB) vkDestroyBuffer(m_device, m_fixationPointVB, nullptr);
+    if (m_fixationPointVBMem) vkFreeMemory(m_device, m_fixationPointVBMem, nullptr);
 
     if (m_descPool) vkDestroyDescriptorPool(m_device, m_descPool, nullptr);
     if (m_descSetLayout) vkDestroyDescriptorSetLayout(m_device, m_descSetLayout, nullptr);
 
     if (m_pipeline) vkDestroyPipeline(m_device, m_pipeline, nullptr);
     if (m_pipelineLayout) vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-    if (m_crosshairPipeline) vkDestroyPipeline(m_device, m_crosshairPipeline, nullptr);
-    if (m_crosshairLayout) vkDestroyPipelineLayout(m_device, m_crosshairLayout, nullptr);
+    if (m_fixationPointPipeline) vkDestroyPipeline(m_device, m_fixationPointPipeline, nullptr);
+    if (m_fixationPointLayout) vkDestroyPipelineLayout(m_device, m_fixationPointLayout, nullptr);
+
+    //if (m_gazeDotPipeline) vkDestroyPipeline(m_device, m_gazeDotPipeline, nullptr);
+    //if (m_gazeDotLayout)   vkDestroyPipelineLayout(m_device, m_gazeDotLayout, nullptr);
 
     for (auto fb : m_framebuffers) vkDestroyFramebuffer(m_device, fb, nullptr);
     for (auto iv : m_swapImageViews) vkDestroyImageView(m_device, iv, nullptr);
@@ -112,9 +123,12 @@ Renderer::~Renderer() {
 /// <param name="monitorWidth"> Width of monitors, (they are asssumed to be the same), passed down by App.</param>
 /// <param name="monitorHeight"> Height of monitors, (they are asssumed to be the same), passed down by App.</param>
 /// <returns> True if successful init, false otherwise. </returns>
-bool Renderer::init(GLFWwindow* window, int monitorWidth, int monitorHeight) {
+bool Renderer::init(GLFWwindow* window, int monitorWidth, int monitorHeight, int displayMode) {
     m_monitorWidth = monitorWidth;
     m_monitorHeight = monitorHeight;
+
+    m_isHDR = displayMode == 0 ? false : true;
+
 
     createInstance(); // root vulkan object
     if (ENABLE_VALIDATION) setupDebugMessenger(); // debug callbacks 
@@ -128,9 +142,15 @@ bool Renderer::init(GLFWwindow* window, int monitorWidth, int monitorHeight) {
     createCommandPool(); // allocates GPU command buffers
     allocateDescriptorPool(); // allocates description sets
     createGraphicsPipeline(); // pipeline for drawing textured quads
-    createCrosshairPipeline(); // differnet pipeline for drawing the crosshair/ fixation point
+    createFixationPointPipeline(); // differnet pipeline for drawing the fixationPoint/ fixation point
+
+    // DEBUG
+    //createGazeDotPipeline(); // pipeline for drawing gaze debug dots
+    //createErrorBoundaryPipeline();
+
+
     createFramebuffers(); // wrap image views into frame buffer objects
-    createCrosshairVertexBuffer(); // uploadss crosshair geometry to the GPU
+    createFixationPointVertexBuffer(); // uploadss fixationPoint geometry to the GPU
     createCommandBuffers(); // creates command buffers,one per frame in flight
     createSyncObjects(); // create semaphores and fences for syncing
     return true;
@@ -207,6 +227,8 @@ struct Rect {
     float x0, y0, x1, y1;
 };
 
+
+
 /// <summary>
 /// Map quad vertices from pixel coordinates to NDC
 /// </summary>
@@ -227,6 +249,17 @@ static Rect makeQuadNDC(int x, int y, int w, int h, int screenW, int screenH)
 
     return { x0, y1, x1, y0 };
 }
+
+/// <summary>
+/// Centers a single quad on screen at its native pixel size (no resizing).
+/// </summary>
+static Rect makeCenteredQuadNDC(int texW, int texH, int screenW, int screenH)
+{
+    int x = (screenW - texW) / 2;
+    int y = (screenH - texH) / 2;
+    return makeQuadNDC(x, y, texW, texH, screenW, screenH);
+}
+
 /// <summary>
 /// Calcualtes the image rects based on their texture size. Does NOT resize images - keeps their true pixel size.
 /// Images will sit side by side on same monitor, with a gap between them.
@@ -267,10 +300,10 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(cmd, &bi); // begin the command buffer, start recording
 
-    // render pass (clears frame buffer to black)
+    // render pass (clears frame buffer to grey)
     VkClearValue clearColor{};
-    clearColor.color = { 0.0f, 0.0f, 0.0f, 1.0f };
-
+    clearColor.color = { 0.1f, 0.1f, 0.1f, 1.0f }; // same grey as response
+    //clearColor.color = { 0.0f,0.0f,0.0f, 1.0f };
     VkRenderPassBeginInfo rpi{};
     rpi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpi.renderPass = m_renderPass;
@@ -319,7 +352,8 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
 
     // choose what to display based on the mode passed
     switch (scene.mode) {
-        case FrameScene::Mode::ShowImages: {
+        case TrialPhase::ShowSideBySideImages: {
+            // Single interval image mode is 1 trial with both images, side by side.
             // left monitor
             setViewport(0);
             TextureSlot TEX_IMAGE0_L = TEX_ORIG_L;
@@ -351,29 +385,96 @@ void Renderer::recordCommandBuffer(VkCommandBuffer cmd, uint32_t imageIndex, con
             drawQuad(cmd, TEX_IMAGE1_R, right1.x0, right1.y0, right1.x1, right1.y1);
             break;
         }
-        // draw full screen quads for these modes
-        case FrameScene::Mode::StartInstructions:
+        // ******************** draw full screen quads for these modes
+
+
+       // ********** two interval modes                                                      
+        case TrialPhase::ShowFlickerImage:
+        {
+            TextureSlot TEX_L = TEX_ORIG_L;
+            TextureSlot TEX_R = TEX_ORIG_R;
+
+            if (scene.flickerShow) {
+                // if this frame is supposed to be a flickered, degraded frame:
+                TEX_L = TEX_DEC_L;
+                TEX_R = TEX_DEC_R;
+            }
+
+            Rect rL = makeCenteredQuadNDC(m_textures[TEX_L].width, m_textures[TEX_L].height, m_monitorWidth, m_monitorHeight);
+            Rect rR = makeCenteredQuadNDC(m_textures[TEX_R].width, m_textures[TEX_R].height, m_monitorWidth, m_monitorHeight);
+
+            setViewport(0);
+            drawQuad(cmd, TEX_L, rL.x0, rL.y0, rL.x1, rL.y1);
+            setViewport(m_monitorWidth);
+            drawQuad(cmd, TEX_R, rR.x0, rR.y0, rR.x1, rR.y1);
+            if (scene.drawFixationPoint)
+            {
+                //renderErrorBoundary(cmd, scene.fixationPointCoords, scene.pixelError);
+                renderFixationPoint(cmd, scene.fixationPointCoords);
+            }  
+            break;
+        }
+
+        case TrialPhase::ShowImage:
+        {
+            Rect rL = makeCenteredQuadNDC(m_textures[TEX_ORIG_L].width, m_textures[TEX_ORIG_L].height, m_monitorWidth, m_monitorHeight);
+            Rect rR = makeCenteredQuadNDC(m_textures[TEX_ORIG_R].width, m_textures[TEX_ORIG_R].height, m_monitorWidth, m_monitorHeight);
+
+            setViewport(0);
+            drawQuad(cmd, TEX_ORIG_L, rL.x0, rL.y0, rL.x1, rL.y1);
+            setViewport(m_monitorWidth);
+            drawQuad(cmd, TEX_ORIG_R, rR.x0, rR.y0, rR.x1, rR.y1);
+            if (scene.drawFixationPoint)
+            {
+                //renderErrorBoundary(cmd, scene.fixationPointCoords, scene.pixelError);
+                renderFixationPoint(cmd, scene.fixationPointCoords);
+            }            
+            break;
+        }
+
+        // ********** shared between both interval modes 
+        case TrialPhase::StartInstructions:
+        {
             setViewport(0);
             drawQuad(cmd, TEX_START_L, FX0, FY0, FX1, FY1);
-            setViewport(m_monitorWidth); 
+            setViewport(m_monitorWidth);
             drawQuad(cmd, TEX_START_R, FX0, FY0, FX1, FY1);
             break;
+        }
 
-        case FrameScene::Mode::WaitForResponse:
+        case TrialPhase::WaitForResponse:
+        {
             setViewport(0);
             drawQuad(cmd, TEX_WAIT_L, FX0, FY0, FX1, FY1);
-            setViewport(m_monitorWidth); 
+            setViewport(m_monitorWidth);
             drawQuad(cmd, TEX_WAIT_R, FX0, FY0, FX1, FY1);
             break;
+        }
 
-        case FrameScene::Mode::Blank:
+        case TrialPhase::ShowBuffer:
+        {
+            // clear already handled by render pass
+            if (scene.drawFixationPoint) 
+            {
+               // renderErrorBoundary(cmd,scene.fixationPointCoords,scene.pixelError);
+                renderFixationPoint(cmd, scene.fixationPointCoords);
+            }
+            break;
+        }
+
+        case TrialPhase::Blank:
+        {
             // clear already handled by render pass
             break;
+        }
+        //case TrialPhase::Calibration:
+        //{
+        //    renderCalibrationTarget(cmd, scene.calibrationTarget, scene.calibrationProgress,
+        //        m_monitorWidth, m_monitorHeight);
+        //    break;
+        //}
     }
-
-    // draw the crosshair
-    if (scene.drawCrosshair) renderCrosshair(cmd);
-
+    //renderEyeTrackingDebug(cmd, scene.leftGazeNorm, scene.rightGazeNorm);
     vkCmdEndRenderPass(cmd);
     vkEndCommandBuffer(cmd);
 }
@@ -417,43 +518,304 @@ void Renderer::drawQuad(VkCommandBuffer cmd, TextureSlot slot, float x0, float y
 
 
 /// <summary>
-/// Draws the fixation cross. This is the render pipeline for the crosshair.
+/// Draws the fixation cross based on given x,y coords for left and right displays. 
+/// This is the render pipeline for the fixationPoint.
 /// </summary>
 /// <param name="cmd"></param>
-void Renderer::renderCrosshair(VkCommandBuffer cmd) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_crosshairPipeline);
-
-    VkBuffer     vbs[] = { m_crosshairVB };
-    VkDeviceSize offsets[] = { 0 };
-    vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
-
-    auto setViewport = [&](int xOff) {
-        VkViewport vp{ (float)xOff, 0, (float)m_monitorWidth, (float)m_monitorHeight, 0, 1 };
-        vkCmdSetViewport(cmd, 0, 1, &vp);
-        VkRect2D sc{ { xOff, 0 }, { (uint32_t)m_monitorWidth, (uint32_t)m_monitorHeight } };
-        vkCmdSetScissor(cmd, 0, 1, &sc);
-    };
-
-    CrosshairPushConstants chp{ (float)m_monitorWidth / (float)m_monitorHeight }; // push aspect ratio so that the vertex shader for the crosshair can correct for non square monitors
-    vkCmdPushConstants(cmd, m_crosshairLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(chp), &chp);
-
-    // draw differnet parts of the crosshair on different monitors. 
-    // that way, when the eyes are correctly converged on the steroscopic mirror setup, the crosshair will be correct
-    setViewport(0);
-    vkCmdDraw(cmd, 6, 1, 0, 0); // horizontal bar on left monitor
-
-    setViewport(m_monitorWidth);
-    vkCmdDraw(cmd, 6, 1, 6, 0); // vertical bar on right monitor
-}
-
 /// <summary>
-/// Loads images from the disk. Handles PPM images. 
+/// Draws the fixation cross, centered at the given (per-monitor) pixel coordinates.
+/// Coordinates are relative to the *original* stimulus image; since the displayed
+/// image is mirrored left-right (see uploadTexture()), the fixation point is mirrored
+/// the same way so it lands on the same visual feature. Each bar has a fixed
+/// CROSSHAIR_SIZE_PX x CROSSHAIR_SIZE_PX footprint, independent of resolution.
 /// </summary>
-/// <param name="slot">Texture slot to be loaded in</param>
-/// <param name="path">Image path</param>
-void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
-    // wait for the gpu to finish before updating any texture slots.
-    vkDeviceWaitIdle(m_device);
+void Renderer::renderFixationPoint(
+    VkCommandBuffer cmd,
+    FixationCoordinates fixationCoords)
+{
+    vkCmdBindPipeline(
+        cmd,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_fixationPointPipeline);
+
+    VkBuffer vbs[] = { m_fixationPointVB };
+    VkDeviceSize offsets[] = { 0 };
+
+    vkCmdBindVertexBuffers(
+        cmd,
+        0,
+        1,
+        vbs,
+        offsets);
+
+    auto setViewport = [&](int xOff)
+        {
+            VkViewport vp{};
+            vp.x = static_cast<float>(xOff);
+            vp.y = 0.0f;
+            vp.width = static_cast<float>(m_monitorWidth);
+            vp.height = static_cast<float>(m_monitorHeight);
+            vp.minDepth = 0.0f;
+            vp.maxDepth = 1.0f;
+
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+
+            VkRect2D scissor{};
+            scissor.offset = { xOff, 0 };
+            scissor.extent = {
+                static_cast<uint32_t>(m_monitorWidth),
+                static_cast<uint32_t>(m_monitorHeight)
+            };
+
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+        };
+
+
+    const float halfSizeX = CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorWidth);
+
+    const float halfSizeY = CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorHeight);
+
+    auto drawCross =
+        [&](int xOff, const Coords& c, const Texture& tex)
+        {
+            // c.X / c.Y are coordinates in the full image
+            const float mirroredX = static_cast<float>(tex.width - 1 - c.X);
+            const float mirroredY = static_cast<float>(tex.height - 1 - c.Y);
+
+            // position of the full image on the monitor (can be negative if image is bigger than monitor, meaning some was cut off)
+            const float imageOriginX = (static_cast<float>(m_monitorWidth) - tex.width) / 2.0f;
+            const float imageOriginY = (static_cast<float>(m_monitorHeight) - tex.height) / 2.0f;
+
+            // convert image coordinates -> monitor coordinates
+            const float screenX = imageOriginX + mirroredX;
+            const float screenY = imageOriginY + mirroredY;
+        
+            // monitor pixels -> NDC.
+            const float ndcX = 2.0f * (screenX + 0.5f) / static_cast<float>(m_monitorWidth) - 1.0f;
+            const float ndcY = 1.0f - 2.0f * (screenY + 0.5f) / static_cast<float>(m_monitorHeight);
+
+            FixationPointPushConstants pc{};
+
+            pc.centerX = ndcX;
+            pc.centerY = ndcY;
+            pc.halfSizeX = halfSizeX;
+            pc.halfSizeY = halfSizeY;
+
+            vkCmdPushConstants( cmd, m_fixationPointLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+            setViewport(xOff);
+
+            vkCmdDraw(cmd, 6, 1, 0, 0);
+            vkCmdDraw(cmd, 6, 1, 6, 0);
+        };
+
+    drawCross(0, fixationCoords.Left, m_textures[TEX_ORIG_L]);
+
+    drawCross(m_monitorWidth, fixationCoords.Right, m_textures[TEX_ORIG_R]);
+}
+////################################################################ DEBUG
+//
+//void Renderer::renderErrorBoundary(
+//    VkCommandBuffer cmd,
+//    FixationCoordinates fixationCoords,
+//    float pixelError)
+//{
+//    vkCmdBindPipeline(
+//        cmd,
+//        VK_PIPELINE_BIND_POINT_GRAPHICS,
+//        m_errorBoundaryPipeline);
+//
+//    auto setViewport = [&](int xOff)
+//        {
+//            VkViewport vp{};
+//
+//            vp.x = static_cast<float>(xOff);
+//            vp.y = 0.0f;
+//            vp.width = static_cast<float>(m_monitorWidth);
+//            vp.height = static_cast<float>(m_monitorHeight);
+//            vp.minDepth = 0.0f;
+//            vp.maxDepth = 1.0f;
+//
+//            vkCmdSetViewport(cmd, 0, 1, &vp);
+//
+//            VkRect2D scissor{};
+//
+//            scissor.offset = {
+//                xOff,
+//                0
+//            };
+//
+//            scissor.extent = {
+//                static_cast<uint32_t>(m_monitorWidth),
+//                static_cast<uint32_t>(m_monitorHeight)
+//            };
+//
+//            vkCmdSetScissor(cmd, 0, 1, &scissor);
+//        };
+//
+//    const float radiusPX = pixelError ;
+//
+//    // Convert a fixation coordinate in image space
+//    // to a center position in monitor NDC.
+//    auto drawBoundary =
+//        [&](int xOff,
+//            const Coords& c,
+//            const Texture& tex)
+//        {
+//            const float mirroredX =
+//                static_cast<float>(tex.width - 1 - c.X);
+//
+//            const float mirroredY =
+//                static_cast<float>(tex.height - 1 - c.Y);
+//
+//            const float imageOriginX =
+//                (static_cast<float>(m_monitorWidth) -
+//                    static_cast<float>(tex.width)) / 2.0f;
+//
+//            const float imageOriginY =
+//                (static_cast<float>(m_monitorHeight) -
+//                    static_cast<float>(tex.height)) / 2.0f;
+//
+//            const float screenX =
+//                imageOriginX + mirroredX;
+//
+//            const float screenY =
+//                imageOriginY + mirroredY;
+//
+//            const float ndcX =
+//                2.0f * (screenX + 0.5f) /
+//                static_cast<float>(m_monitorWidth) - 1.0f;
+//
+//            const float ndcY =
+//                1.0f -
+//                2.0f * (screenY + 0.5f) /
+//                static_cast<float>(m_monitorHeight);
+//
+//            const float radiusX =
+//                2.0f * radiusPX /
+//                static_cast<float>(m_monitorWidth);
+//
+//            const float radiusY =
+//                2.0f * radiusPX /
+//                static_cast<float>(m_monitorHeight);
+//
+//            ErrorBoundaryPushConstants pc{};
+//
+//            pc.centerX = ndcX;
+//            pc.centerY = ndcY;
+//            pc.radiusX = radiusX;
+//            pc.radiusY = radiusY;
+//
+//            vkCmdPushConstants(
+//                cmd,
+//                m_errorBoundaryLayout,
+//                VK_SHADER_STAGE_VERTEX_BIT,
+//                0,
+//                sizeof(pc),
+//                &pc);
+//
+//            setViewport(xOff);
+//
+//            // 1 center vertex + 96 circle vertices.
+//            vkCmdDraw(cmd,97,1,0,0);
+//        };
+//
+//    drawBoundary(
+//        0,
+//        fixationCoords.Left,
+//        m_textures[TEX_ORIG_L]);
+//
+//    drawBoundary(
+//        m_monitorWidth,
+//        fixationCoords.Right,
+//        m_textures[TEX_ORIG_R]);
+//}
+//
+//
+//
+///// <summary>
+/////  For debug purposes, render points to follow the gaze as seen by the eyetracker
+///// </summary>
+///// <param name="leftEye"></param>
+///// <param name="rightEye"></param>
+//void Renderer::renderEyeTrackingDebug(VkCommandBuffer cmd, NormalizedGaze leftGaze, NormalizedGaze rightGaze) {
+//    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_gazeDotPipeline);
+//    // no vertex buffer to bind -- geometry is generated in the vertex shader
+//
+//    auto setViewport = [&](int xOff)
+//        {
+//            VkViewport vp{};
+//            vp.x = static_cast<float>(xOff);
+//            vp.y = 0.0f;
+//            vp.width = static_cast<float>(m_monitorWidth);
+//            vp.height = static_cast<float>(m_monitorHeight);
+//            vp.minDepth = 0.0f;
+//            vp.maxDepth = 1.0f;
+//            vkCmdSetViewport(cmd, 0, 1, &vp);
+//
+//            VkRect2D scissor{};
+//            scissor.offset = { xOff, 0 };
+//            scissor.extent = {
+//                static_cast<uint32_t>(m_monitorWidth),
+//                static_cast<uint32_t>(m_monitorHeight)
+//            };
+//            vkCmdSetScissor(cmd, 0, 1, &scissor);
+//        };
+//
+//    const float halfSizeX = CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorWidth);
+//    const float halfSizeY = CROSSHAIR_SIZE_PX / static_cast<float>(m_monitorHeight);
+//
+//    // Converts Tobii's normalized-to-display gaze into the same image-pixel space
+//    // fixationCoords already live in: undo the display scale, undo the crop/
+//    // translation (imageOrigin), undo the left-right mirror.
+//    auto normalizedGazeToImageSpace = [&](const NormalizedGaze& g, const Texture& tex) -> Coords {
+//        const float screenX = static_cast<float>(g.x) * m_monitorWidth;
+//        const float screenY = static_cast<float>(g.y) * m_monitorHeight;
+//
+//        const float imageOriginX = (static_cast<float>(m_monitorWidth) - tex.width) / 2.0f;
+//        const float imageOriginY = (static_cast<float>(m_monitorHeight) - tex.height) / 2.0f;
+//
+//        const float mirroredX = screenX - imageOriginX;
+//        const float mirroredY = screenY - imageOriginY;
+//
+//        return {
+//            static_cast<int>(tex.width - 1 - mirroredX),
+//            static_cast<int>(tex.height - 1 - mirroredY)
+//        };
+//        };
+//
+//    auto drawDot = [&](int xOff, const Coords& c, const Texture& tex, float r, float g, float b)
+//        {
+//            const float ndcX = 2.0f * (static_cast<float>(c.X) + 0.5f) / static_cast<float>(tex.width) - 1.0f;
+//            const float ndcY = 1.0f - 2.0f * (static_cast<float>(c.Y) + 0.5f) / static_cast<float>(tex.height);
+//
+//            GazeDotPushConstants pc{};
+//            pc.centerX = ndcX;
+//            pc.centerY = ndcY;
+//            pc.halfSizeX = halfSizeX;
+//            pc.halfSizeY = halfSizeY;
+//            pc.colorR = r;
+//            pc.colorG = g;
+//            pc.colorB = b;
+//            pc.colorA = 1.0f;
+//
+//            vkCmdPushConstants(cmd, m_gazeDotLayout,
+//                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+//            setViewport(xOff);
+//            vkCmdDraw(cmd, 6, 1, 0, 0);
+//        };
+//
+//
+//
+//    if (leftGaze.valid)
+//        //printf("valid____!");
+//        drawDot(0, normalizedGazeToImageSpace(leftGaze, m_textures[TEX_ORIG_L]), m_textures[TEX_ORIG_L], 0.1f, 1.0f, 1.0f);   // cyan
+//
+//    if (rightGaze.valid)
+//        //printf("valid!");
+//        drawDot(m_monitorWidth, normalizedGazeToImageSpace(rightGaze, m_textures[TEX_ORIG_R]), m_textures[TEX_ORIG_R], 1.0f, 0.1f, 1.0f); // magenta
+//}
+
+DecodedImage Renderer::decodeImageForUpload(TextureSlot slot, const std::string& path) {
 
     // read the PPM max value from the ppm header to determine whether image is HDR
     double ppmMax = 255.0;
@@ -472,7 +834,7 @@ void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
 
     // load pixels in with openCV
     cv::Mat src = cv::imread(path, cv::IMREAD_ANYDEPTH | cv::IMREAD_COLOR);
-    
+
     if (src.empty()) throw std::runtime_error("[Renderer] Failed to load image: " + path);
 
     const bool isHDR = (ppmMax > 255.0); // hdr > 8 bit
@@ -488,7 +850,7 @@ void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
     VkFormat fmt;
     cv::Mat  upload;
 
-    if (isHDR) {
+    if (isHDR && m_isHDR) {
         cv::Mat rgba;
         cv::cvtColor(img, rgba, cv::COLOR_RGB2RGBA);
         rgba.convertTo(upload, CV_16F);
@@ -503,13 +865,40 @@ void Renderer::uploadTexture(TextureSlot slot, const std::string& path) {
 
     if (!upload.isContinuous()) upload = upload.clone();
 
+    DecodedImage out;
+    out.format = fmt;
+    out.width = upload.cols;
+    out.height = upload.rows;
+    const size_t bytes = upload.total() * upload.elemSize();
+    out.pixels.assign(upload.data, upload.data + bytes);
+
+
+    m_decodedImages[slot] = out;
+    return out;
+}
+
+
+void Renderer::uploadDecodedTexture(TextureSlot slot) {
+    // wait for the gpu to finish any in flight frame before destroying/replacing this slot's texture
+    // destroyTexture() has no synchronization of its own, and a previous frames command buffer
+    // may still be referencing the old texture (MAX_FRAMES_IN_FLIGHT > 1).
+    vkDeviceWaitIdle(m_device);
+
     Texture& tex = m_textures[slot];
+    DecodedImage& decodedImage = m_decodedImages[slot];
     destroyTexture(tex);
-    tex.width = upload.cols;
-    tex.height = upload.rows;
-    uploadTextureData(tex, upload.data, fmt, upload.cols, upload.rows);
+    tex.width = decodedImage.width;
+    tex.height = decodedImage.height;
+    uploadTextureData(tex, decodedImage.pixels.data(), decodedImage.format, decodedImage.width, decodedImage.height);
     updateDescriptorSet(slot, tex);
 }
+
+void Renderer::decodeAndUploadTexture(TextureSlot slot, const std::string& path) {
+    decodeImageForUpload(slot, path);
+    uploadDecodedTexture(slot);  // now waits for GPU idle internally
+}
+
+
 
 /// <summary>
 /// Staging buffer upload. 
@@ -796,18 +1185,28 @@ void Renderer::createLogicalDevice() {
 /// <returns></returns>
 VkSurfaceFormatKHR Renderer::chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& available)
 {
-    for (auto& f : available) { // bgr and HDR10
-        if (f.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
-            f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
+    if (!m_isHDR) {
+        for (auto& f : available) { // SRGB preferred
+            if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT &&
+                f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) return f;
+        }
+
     }
-    for (auto& f : available) { // rgb and HDR10
-        if (f.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 &&
-            f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
+    else { // check for HDR support if HDR is preferred
+        for (auto& f : available) { // bgr and HDR10
+            if (f.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
+                f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
+        }
+        for (auto& f : available) { // rgb and HDR10
+            if (f.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 &&
+                f.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) return f;
+        }
+        for (auto& f : available) { // SRGB fallback
+            if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT &&
+                f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) return f;
+        }
     }
-    for (auto& f : available) { // SRGB fallback
-        if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT &&
-            f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) return f;
-    }
+    
     return available[0];
 }
 
@@ -1096,8 +1495,288 @@ void Renderer::createGraphicsPipeline() {
     vkDestroyShaderModule(m_device, vertMod, nullptr);
     vkDestroyShaderModule(m_device, fragMod, nullptr);
 }
+//void Renderer::createGazeDotPipeline() {
+//    auto vertSpv = compileGLSL(GAZE_DOT_VERT_GLSL, shaderc_vertex_shader, "dot.vert");
+//    auto fragSpv = compileGLSL(GAZE_DOT_FRAG_GLSL, shaderc_fragment_shader, "dot.frag");
+//
+//    VkShaderModule vertMod = createShaderModule(vertSpv);
+//    VkShaderModule fragMod = createShaderModule(fragSpv);
+//
+//    VkPipelineShaderStageCreateInfo stages[2]{};
+//    stages[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+//                  nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,   vertMod, "main" };
+//    stages[1] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+//                  nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragMod, "main" };
+//
+//    // no vertex buffer -- corners are generated in the vertex shader
+//    VkPipelineVertexInputStateCreateInfo vis{};
+//    vis.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+//
+//    VkPipelineInputAssemblyStateCreateInfo ias{};
+//    ias.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+//    ias.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+//
+//    VkPipelineViewportStateCreateInfo vps{};
+//    vps.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+//    vps.viewportCount = 1;
+//    vps.scissorCount = 1;
+//
+//    VkPipelineRasterizationStateCreateInfo rast{};
+//    rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+//    rast.polygonMode = VK_POLYGON_MODE_FILL;
+//    rast.cullMode = VK_CULL_MODE_NONE;
+//    rast.lineWidth = 1.0f;
+//
+//    VkPipelineMultisampleStateCreateInfo ms{};
+//    ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+//    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+//
+//    VkPipelineColorBlendAttachmentState blendAtt{};
+//    blendAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+//        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+//    blendAtt.blendEnable = VK_FALSE; // opaque dots, same as the crosshair pipeline
+//
+//    VkPipelineColorBlendStateCreateInfo blend{};
+//    blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+//    blend.attachmentCount = 1;
+//    blend.pAttachments = &blendAtt;
+//
+//    std::vector<VkDynamicState> dynStates{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+//    VkPipelineDynamicStateCreateInfo dyn{};
+//    dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+//    dyn.dynamicStateCount = (uint32_t)dynStates.size();
+//    dyn.pDynamicStates = dynStates.data();
+//
+//    VkPushConstantRange pcr{};
+//    pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT; // frag reads the color fields
+//    pcr.size = sizeof(GazeDotPushConstants);
+//
+//    VkPipelineLayoutCreateInfo pli{};
+//    pli.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+//    pli.pushConstantRangeCount = 1;
+//    pli.pPushConstantRanges = &pcr;
+//    vkCreatePipelineLayout(m_device, &pli, nullptr, &m_gazeDotLayout);
+//
+//    VkGraphicsPipelineCreateInfo pci{};
+//    pci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+//    pci.stageCount = 2;
+//    pci.pStages = stages;
+//    pci.pVertexInputState = &vis;
+//    pci.pInputAssemblyState = &ias;
+//    pci.pViewportState = &vps;
+//    pci.pRasterizationState = &rast;
+//    pci.pMultisampleState = &ms;
+//    pci.pColorBlendState = &blend;
+//    pci.pDynamicState = &dyn;
+//    pci.layout = m_gazeDotLayout;
+//    pci.renderPass = m_renderPass;
+//
+//    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci,
+//        nullptr, &m_gazeDotPipeline) != VK_SUCCESS)
+//        throw std::runtime_error("createGazeDotPipeline failed");
+//
+//    vkDestroyShaderModule(m_device, vertMod, nullptr);
+//    vkDestroyShaderModule(m_device, fragMod, nullptr);
+//}
+//
+//void Renderer::createErrorBoundaryPipeline()
+//{
+//    auto vertSpv = compileGLSL(
+//        ERROR_BOUNDARY_VERT_GLSL,
+//        shaderc_vertex_shader,
+//        "error_boundary.vert");
+//
+//    auto fragSpv = compileGLSL(
+//        ERROR_BOUNDARY_FRAG_GLSL,
+//        shaderc_fragment_shader,
+//        "error_boundary.frag");
+//
+//    VkShaderModule vertMod = createShaderModule(vertSpv);
+//    VkShaderModule fragMod = createShaderModule(fragSpv);
+//
+//    VkPipelineShaderStageCreateInfo stages[2]{};
+//
+//    stages[0] = {
+//        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+//        nullptr,
+//        0,
+//        VK_SHADER_STAGE_VERTEX_BIT,
+//        vertMod,
+//        "main"
+//    };
+//
+//    stages[1] = {
+//        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+//        nullptr,
+//        0,
+//        VK_SHADER_STAGE_FRAGMENT_BIT,
+//        fragMod,
+//        "main"
+//    };
+//
+//    // No vertex buffer.
+//    // The vertex shader generates the circle from gl_VertexIndex.
+//    VkPipelineVertexInputStateCreateInfo vis{};
+//    vis.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+//
+//    VkPipelineInputAssemblyStateCreateInfo ias{};
+//    ias.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+//
+//    // Triangle fan:
+//    //
+//    //       2
+//    //      / \
+//    //     /   \
+//    //    1--0--3
+//    //
+//    // 0 is the center.
+//    ias.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+//
+//    VkPipelineViewportStateCreateInfo vps{};
+//    vps.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+//    vps.viewportCount = 1;
+//    vps.scissorCount = 1;
+//
+//    VkPipelineRasterizationStateCreateInfo rast{};
+//    rast.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+//    rast.polygonMode = VK_POLYGON_MODE_FILL;
+//    rast.cullMode = VK_CULL_MODE_NONE;
+//    rast.lineWidth = 1.0f;
+//
+//    VkPipelineMultisampleStateCreateInfo ms{};
+//    ms.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+//    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+//
+//    // ------------------------------------------------------------
+//    // Alpha blending
+//    // ------------------------------------------------------------
+//
+//    VkPipelineColorBlendAttachmentState blendAtt{};
+//
+//    blendAtt.blendEnable = VK_TRUE;
+//
+//    blendAtt.srcColorBlendFactor =
+//        VK_BLEND_FACTOR_SRC_ALPHA;
+//
+//    blendAtt.dstColorBlendFactor =
+//        VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+//
+//    blendAtt.colorBlendOp =
+//        VK_BLEND_OP_ADD;
+//
+//    blendAtt.srcAlphaBlendFactor =
+//        VK_BLEND_FACTOR_ONE;
+//
+//    blendAtt.dstAlphaBlendFactor =
+//        VK_BLEND_FACTOR_ZERO;
+//
+//    blendAtt.alphaBlendOp =
+//        VK_BLEND_OP_ADD;
+//
+//    blendAtt.colorWriteMask =
+//        VK_COLOR_COMPONENT_R_BIT |
+//        VK_COLOR_COMPONENT_G_BIT |
+//        VK_COLOR_COMPONENT_B_BIT |
+//        VK_COLOR_COMPONENT_A_BIT;
+//
+//    VkPipelineColorBlendStateCreateInfo blend{};
+//    blend.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+//
+//    blend.logicOpEnable = VK_FALSE;
+//    blend.attachmentCount = 1;
+//    blend.pAttachments = &blendAtt;
+//
+//    // Viewport and scissor are set dynamically.
+//    std::vector<VkDynamicState> dynStates{
+//        VK_DYNAMIC_STATE_VIEWPORT,
+//        VK_DYNAMIC_STATE_SCISSOR
+//    };
+//
+//    VkPipelineDynamicStateCreateInfo dyn{};
+//    dyn.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+//
+//    dyn.dynamicStateCount =
+//        static_cast<uint32_t>(dynStates.size());
+//
+//    dyn.pDynamicStates = dynStates.data();
+//
+//    // Push constants:
+//    //
+//    // vec2 center
+//    // vec2 radius
+//    //
+//    VkPushConstantRange pcr{};
+//    pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+//    pcr.offset = 0;
+//    pcr.size = sizeof(ErrorBoundaryPushConstants);
+//
+//    VkPipelineLayoutCreateInfo pli{};
+//    pli.sType =
+//        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+//
+//    pli.pushConstantRangeCount = 1;
+//    pli.pPushConstantRanges = &pcr;
+//
+//    if (vkCreatePipelineLayout(
+//        m_device,
+//        &pli,
+//        nullptr,
+//        &m_errorBoundaryLayout) != VK_SUCCESS)
+//    {
+//        throw std::runtime_error(
+//            "vkCreatePipelineLayout failed for error boundary");
+//    }
+//
+//    VkGraphicsPipelineCreateInfo pci{};
+//    pci.sType =
+//        VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+//
+//    pci.stageCount = 2;
+//    pci.pStages = stages;
+//
+//    pci.pVertexInputState = &vis;
+//    pci.pInputAssemblyState = &ias;
+//    pci.pViewportState = &vps;
+//    pci.pRasterizationState = &rast;
+//    pci.pMultisampleState = &ms;
+//    pci.pColorBlendState = &blend;
+//    pci.pDynamicState = &dyn;
+//
+//    pci.layout = m_errorBoundaryLayout;
+//    pci.renderPass = m_renderPass;
+//
+//    if (vkCreateGraphicsPipelines(
+//        m_device,
+//        VK_NULL_HANDLE,
+//        1,
+//        &pci,
+//        nullptr,
+//        &m_errorBoundaryPipeline) != VK_SUCCESS)
+//    {
+//        throw std::runtime_error(
+//            "createErrorBoundaryPipeline failed");
+//    }
+//
+//    vkDestroyShaderModule(
+//        m_device,
+//        vertMod,
+//        nullptr);
+//
+//    vkDestroyShaderModule(
+//        m_device,
+//        fragMod,
+//        nullptr);
+//}
 
-void Renderer::createCrosshairPipeline() {
+
+void Renderer::createFixationPointPipeline() {
     auto vertSpv = compileGLSL(CROSSHAIR_VERT_GLSL, shaderc_vertex_shader, "ch.vert");
     auto fragSpv = compileGLSL(CROSSHAIR_FRAG_GLSL, shaderc_fragment_shader, "ch.frag");
 
@@ -1165,13 +1844,13 @@ void Renderer::createCrosshairPipeline() {
 
     VkPushConstantRange pcr{};
     pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    pcr.size = sizeof(CrosshairPushConstants);
+    pcr.size = sizeof(FixationPointPushConstants);
 
     VkPipelineLayoutCreateInfo pli{};
     pli.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pli.pushConstantRangeCount = 1;
     pli.pPushConstantRanges = &pcr;
-    vkCreatePipelineLayout(m_device, &pli, nullptr, &m_crosshairLayout);
+    vkCreatePipelineLayout(m_device, &pli, nullptr, &m_fixationPointLayout);
 
     VkGraphicsPipelineCreateInfo pci{};
     pci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1184,12 +1863,12 @@ void Renderer::createCrosshairPipeline() {
     pci.pMultisampleState = &ms;
     pci.pColorBlendState = &blend;
     pci.pDynamicState = &dyn;
-    pci.layout = m_crosshairLayout;
+    pci.layout = m_fixationPointLayout;
     pci.renderPass = m_renderPass;
 
     if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci,
-        nullptr, &m_crosshairPipeline) != VK_SUCCESS)
-        throw std::runtime_error("createCrosshairPipeline failed");
+        nullptr, &m_fixationPointPipeline) != VK_SUCCESS)
+        throw std::runtime_error("createFixationPointPipeline failed");
 
     vkDestroyShaderModule(m_device, vertMod, nullptr);
     vkDestroyShaderModule(m_device, fragMod, nullptr);
@@ -1210,7 +1889,7 @@ void Renderer::createFramebuffers() {
     }
 }
 
-void Renderer::createCrosshairVertexBuffer() {
+void Renderer::createFixationPointVertexBuffer() {
     const VkDeviceSize size = sizeof(CROSSHAIR_VERTS);
 
     VkBuffer       stageBuf;
@@ -1227,11 +1906,11 @@ void Renderer::createCrosshairVertexBuffer() {
     createBuffer(size,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        m_crosshairVB, m_crosshairVBMem);
+        m_fixationPointVB, m_fixationPointVBMem);
 
     VkCommandBuffer cmd = beginSingleTimeCommands();
     VkBufferCopy    cp{ 0, 0, size };
-    vkCmdCopyBuffer(cmd, stageBuf, m_crosshairVB, 1, &cp);
+    vkCmdCopyBuffer(cmd, stageBuf, m_fixationPointVB, 1, &cp);
     endSingleTimeCommands(cmd);
 
     vkDestroyBuffer(m_device, stageBuf, nullptr);

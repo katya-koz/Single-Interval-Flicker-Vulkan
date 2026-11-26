@@ -420,3 +420,8 @@ FodyWeavers.xsd
 
 config.json
 SingleIntervalFlicker/config.json
+
+trials.csv
+SingleIntervalFlicker/trials.csv
+participants.csv
+SingleIntervalFlicker/participants.csv

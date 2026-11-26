@@ -75,11 +75,20 @@ static const std::string CROSSHAIR_VERT_GLSL = R"glsl(
 layout(location = 0) in vec2 aPos;
 
 layout(push_constant) uniform PC {
-    float aspect;  // need aspect to ensure the crosshair is uniform across length and width
+    float centerX;
+    float centerY;
+    float halfSizeX;
+    float halfSizeY;
 } pc;
 
-void main() {
-    gl_Position = vec4(aPos.x / pc.aspect, aPos.y, 0.0, 1.0);
+void main()
+{
+    gl_Position = vec4(
+        aPos.x * pc.halfSizeX + pc.centerX,
+        aPos.y * pc.halfSizeY + pc.centerY,
+        0.0,
+        1.0
+    );
 }
 )glsl";
 
@@ -93,3 +102,115 @@ void main() {
     outColor = vec4(1.0, 1.0, 1.0, 1.0);
 }
 )glsl";
+
+//
+//static const std::string GAZE_DOT_VERT_GLSL = R"glsl(
+//#version 450
+//
+//layout(push_constant) uniform PC {
+//    float centerX;
+//    float centerY;
+//    float halfSizeX;
+//    float halfSizeY;
+//    float colorR;
+//    float colorG;
+//    float colorB;
+//    float colorA;
+//} pc;
+//
+//layout(location = 0) out vec2 vLocalPos;
+//
+//void main() {
+//    const vec2 corners[4] = vec2[](
+//        vec2(-1.0, -1.0),
+//        vec2( 1.0, -1.0),
+//        vec2( 1.0,  1.0),
+//        vec2(-1.0,  1.0)
+//    );
+//    const int idx[6] = int[](0, 1, 2, 2, 3, 0);
+//    vec2 local = corners[idx[gl_VertexIndex]];
+//
+//    gl_Position = vec4(
+//        local.x * pc.halfSizeX + pc.centerX,
+//        local.y * pc.halfSizeY + pc.centerY,
+//        0.0,
+//        1.0
+//    );
+//    vLocalPos = local;
+//}
+//)glsl";
+//
+//static const std::string GAZE_DOT_FRAG_GLSL = R"glsl(
+//#version 450
+//
+//layout(location = 0) in vec2 vLocalPos;
+//layout(location = 0) out vec4 outColor;
+//
+//layout(push_constant) uniform PC {
+//    float centerX;
+//    float centerY;
+//    float halfSizeX;
+//    float halfSizeY;
+//    float colorR;
+//    float colorG;
+//    float colorB;
+//    float colorA;
+//} pc;
+//
+//void main() {
+//    if (length(vLocalPos) > 1.0) discard; // outside the unit circle -> transparent
+//    outColor = vec4(pc.colorR, pc.colorG, pc.colorB, pc.colorA);
+//}
+//)glsl";
+//
+//
+//static const char* ERROR_BOUNDARY_VERT_GLSL = R"glsl(
+//#version 450
+//
+//layout(push_constant) uniform PushConstants {
+//    vec2 center;
+//    vec2 radius;
+//} pc;
+//
+//void main()
+//{
+//    // Vertex 0 is the center.
+//    // Remaining vertices form a circle around it.
+//    const int SEGMENTS = 96;
+//
+//    if (gl_VertexIndex == 0)
+//    {
+//        gl_Position = vec4(pc.center, 0.0, 1.0);
+//        return;
+//    }
+//
+//    int i = gl_VertexIndex - 1;
+//
+//    float angle =
+//        2.0 * 3.14159265359 *
+//        float(i) / float(SEGMENTS);
+//
+//    vec2 offset = vec2(
+//        cos(angle) * pc.radius.x,
+//        sin(angle) * pc.radius.y
+//    );
+//
+//    gl_Position = vec4(
+//        pc.center + offset,
+//        0.0,
+//        1.0
+//    );
+//}
+//)glsl";
+//
+//static const char* ERROR_BOUNDARY_FRAG_GLSL = R"glsl(
+//#version 450
+//
+//layout(location = 0) out vec4 outColor;
+//
+//void main()
+//{
+//    // Orange, 50% alpha.
+//    outColor = vec4(1.0, 0.45, 0.0, 0.5);
+//}
+//)glsl";
